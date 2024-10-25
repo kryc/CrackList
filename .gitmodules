@@ -1,0 +1,3 @@
+[submodule "libdispatchqueue"]
+	path = libdispatchqueue
+	url = https://github.com/kryc/libdispatchqueue.git
