@@ -157,6 +157,8 @@ CrackList::Crack(
         if (Lookup(&hash[0]))
         {
             auto hex = Util::ToHex(&hash[0], hash.size());
+            std::transform(hex.begin(), hex.end(), hex.begin(),
+                [](unsigned char c){ return std::tolower(c); });
             std::cout << hex << ":" << line << std::endl;
         }
     }
