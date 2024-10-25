@@ -1,2 +1,2 @@
-# crackdb++
-Unsalted password hash lookup utility in C++
+# CrackList
+Wordlist-based password cracking tool
