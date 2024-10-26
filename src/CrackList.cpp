@@ -146,11 +146,20 @@ CrackList::Crack(
     std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
     std::vector<uint8_t> hash(m_DigestLength);
 
+    std::string last;
+
     for( std::string line; getline(input, line); )
     {
         // Strip cr and nl
         line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
         line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
+
+        if (line == last)
+        {
+            continue;
+        }
+
+        last = line;
 
         DoHash(m_Algorithm, (uint8_t*)&line[0], line.size(), &hash[0]);
 
