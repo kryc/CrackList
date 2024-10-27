@@ -11,7 +11,9 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
+#include <tuple>
 
 #include "DispatchQueue.hpp"
 
@@ -28,6 +30,7 @@ public:
     void SetSeparator(const std::string Separator) { m_Separator = Separator; }
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     void SetBlockSize(const size_t BlockSize) { m_BlockSize = BlockSize; }
+    void SetDeduplicate(const bool Deduplicate) { m_Deduplicate = Deduplicate; }
     const std::filesystem::path GetHashFile(void) const { return m_HashFile; }
     const std::filesystem::path GetOutFile(void) const { return m_OutFile; }
     const std::string GetWordlist(void) const { return m_Wordlist; }
@@ -35,14 +38,18 @@ public:
     const std::string GetSeparator(void) const { return m_Separator; }
     const size_t GetThreads(void) const { return m_Threads; }
     const size_t GetBlockSize(void) const { return m_BlockSize; }
+    const bool GetDeduplicate(void) const { return m_Deduplicate; }
     const bool Crack(void);
     const bool CrackLinear(void);
     void CrackWorker(const size_t Id);
-    void OutputResults(std::map<std::string,std::string> Results);
+    void OutputResults(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> Results);
     void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string Last);
     void WorkerFinished(void);
 private:
-    const bool Lookup(const uint8_t* Hash);
+    const bool Lookup(const uint8_t* Base, const size_t Size, const uint8_t* Hash) const;
+    const bool CheckDuplicate(const std::vector<uint8_t>& Hash) const;
+    void AddDuplicate(const std::vector<uint8_t>& Hash);
+    const bool CheckAndAddDuplicate(const std::vector<uint8_t>& Hash);
     std::filesystem::path m_HashFile;
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;
@@ -60,6 +67,9 @@ private:
     std::string m_LastCracked;
     size_t m_Processed = 0;
     size_t m_Cracked = 0;
+    bool m_Deduplicate = false;
+    std::vector<uint8_t> m_Found;
+    std::shared_mutex m_DedupeMutex;
     // Threading
     std::mutex m_InputMutex;
     size_t m_Threads = 1;

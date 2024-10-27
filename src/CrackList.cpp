@@ -21,14 +21,14 @@
 
 const bool
 CrackList::Lookup(
+    const uint8_t* Base,
+    const size_t Size, 
     const uint8_t* Hash
-)
+) const
 {
     // Perform the search
-    const uint8_t* base = m_MappedHashesBase;
-    const uint8_t* top = base + m_MappedHashesSize;
-
-    // const size_t count = m_MappedHashesSize / m_DigestLength;
+    const uint8_t* base = Base;
+    const uint8_t* top = Base + Size;
 
     uint8_t* low = (uint8_t*)base;
     uint8_t* high = (uint8_t*)top - m_DigestLength;
@@ -82,12 +82,15 @@ CrackList::CrackLinear(
 
         DoHash(m_Algorithm, (uint8_t*)&line[0], line.size(), &hash[0]);
 
-        if (Lookup(&hash[0]))
+        if (Lookup(m_MappedHashesBase, m_MappedHashesSize, &hash[0]))
         {
-            auto hex = Util::ToHex(&hash[0], hash.size());
-            hex = Util::ToLower(hex);
-            m_Cracked++;
-            output << hex << m_Separator << line << std::endl;
+            if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
+            {
+                auto hex = Util::ToHex(&hash[0], hash.size());
+                hex = Util::ToLower(hex);
+                m_Cracked++;
+                output << hex << m_Separator << line << std::endl;
+            }
         }
 
         if (m_Processed % m_BlockSize == 0)
@@ -102,17 +105,52 @@ CrackList::CrackLinear(
     return true;
 }
 
+const bool
+CrackList::CheckDuplicate(
+    const std::vector<uint8_t>& Hash
+) const
+{
+    if (m_Found.size() > 0 && Lookup(&m_Found[0], m_Found.size(), (const uint8_t*)&Hash[0]))
+    {
+        return true;
+    }
+    return false;
+}
+
+void
+CrackList::AddDuplicate(
+    const std::vector<uint8_t>& Hash
+)
+{
+    m_Found.insert(m_Found.end(), Hash.begin(), Hash.end());
+    qsort_r(&m_Found[0], m_Found.size()/m_DigestLength, m_DigestLength, (__compar_d_fn_t)memcmp, (void*)m_DigestLength);
+}
+
+const bool
+CrackList::CheckAndAddDuplicate(
+    const std::vector<uint8_t>& Hash
+)
+{
+    std::unique_lock lock(m_DedupeMutex);
+    const bool exists = CheckDuplicate(Hash);
+    if (!exists)
+    {
+        AddDuplicate(Hash);
+    }
+    return exists;
+}
+
 void
 CrackList::OutputResults(
-    std::map<std::string,std::string> Results
+    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> Results
 )
 {
     std::ostream& output = m_OutputFileStream.is_open() ? m_OutputFileStream : std::cout;
 
-    for (auto& [h,v] : Results)
+    for (auto& [h,x,v] : Results)
     {
         m_Cracked++;
-        output << h << m_Separator << v << std::endl;
+        output << x << m_Separator << v << std::endl;
         m_LastCracked = v;
     }
 }
@@ -243,7 +281,7 @@ CrackList::CrackWorker(
         } while(block.size() < m_BlockSize && !input.eof());
     }
 
-    std::map<std::string, std::string> cracked;
+    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> cracked;
 
     auto start = std::chrono::system_clock::now();
 
@@ -255,11 +293,25 @@ CrackList::CrackWorker(
 
         DoHash(m_Algorithm, (uint8_t*)&line[0], line.size(), &hash[0]);
 
-        if (Lookup(&hash[0]))
+        if (Lookup(m_MappedHashesBase, m_MappedHashesSize, &hash[0]))
         {
-            auto hex = Util::ToHex(&hash[0], hash.size());
-            hex = Util::ToLower(hex);
-            cracked[hex] = line;
+            // Check first in a shared lock
+            if (m_Deduplicate)
+            {
+                std::shared_lock lock(m_DedupeMutex);
+                if (CheckDuplicate(hash))
+                {
+                    continue;
+                }
+            }
+
+            // Check and add in a unique lock if not found
+            if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
+            {
+                auto hex = Util::ToHex(&hash[0], hash.size());
+                hex = Util::ToLower(hex);
+                cracked.push_back({hash, hex, line});
+            }
         }
     }
 

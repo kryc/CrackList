@@ -57,6 +57,10 @@ int main(
         {
             cracklist.SetAlgorithm(HashAlgorithmSHA1);
         }
+        else if (arg == "--dedup")
+        {
+            cracklist.SetDeduplicate(true);
+        }
         else if (cracklist.GetHashFile() == "")
         {
             cracklist.SetHashFile(arg);
