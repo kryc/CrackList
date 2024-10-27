@@ -38,10 +38,20 @@ int main(
     {
         std::string arg = argv[i];
 
-        if (arg == "--out" || arg == "-o")
+        if (arg == "--out" || arg == "--outfile" || arg == "-o")
         {
             ARGCHECK();
             cracklist.SetOutFile(argv[++i]);
+        }
+        else if (arg == "--threads" || arg == "-t")
+        {
+            ARGCHECK();
+            cracklist.SetThreads(atoi(argv[++i]));
+        }
+        else if (arg == "--blocksize" || arg == "-b")
+        {
+            ARGCHECK();
+            cracklist.SetBlockSize(atoi(argv[++i]));
         }
         else if (arg == "--sha1")
         {
