@@ -22,7 +22,7 @@
 const bool
 CrackList::Lookup(
     const uint8_t* Base,
-    const size_t Size, 
+    const size_t Size,
     const uint8_t* Hash
 ) const
 {
@@ -63,6 +63,7 @@ CrackList::CrackLinear(
     std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
     std::ostream& output = m_OutputFileStream.is_open() ? m_OutputFileStream : std::cout;
     std::vector<uint8_t> hash(m_DigestLength);
+    std::string last_cracked;
 
     auto start = std::chrono::system_clock::now();
 
@@ -90,6 +91,7 @@ CrackList::CrackLinear(
                 hex = Util::ToLower(hex);
                 m_Cracked++;
                 output << hex << m_Separator << line << std::endl;
+                last_cracked = line;
             }
         }
 
@@ -164,9 +166,14 @@ CrackList::ThreadPulse(
 {
     m_LastBlockMs[ThreadId] = BlockTime;
 
-    std::string printable = Last;
+    if (!Last.empty())
+    {
+        m_LastCracked = Last;
+    }
+
+    std::string printable = m_LastCracked;
     std::transform(printable.begin(), printable.end(), printable.begin(),
-    [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
+        [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
 
     // Output the status if we are not printing to stdout
     if (!m_OutFile.string().empty())
@@ -177,7 +184,7 @@ CrackList::ThreadPulse(
             averageMs += val;
         }
         averageMs /= m_Threads;
-        
+
         double hashesPerSec = 1000.f * (m_BlockSize / averageMs);
         char multiplechar = ' ';
         if (hashesPerSec > 1000000000.f)
@@ -200,17 +207,18 @@ CrackList::ThreadPulse(
 
         char statusbuf[96];
         statusbuf[sizeof(statusbuf) - 1] = '\0';
-        memset(statusbuf, '\b', sizeof(statusbuf) - 1);
-        fprintf(stderr, "%s", statusbuf);
+        fprintf(stderr, "%s", "\r");
+        fflush(stderr);
         memset(statusbuf, ' ', sizeof(statusbuf) - 1);
         int count = snprintf(
             statusbuf, sizeof(statusbuf),
-            "H/s:%.1lf%c C:%zu/%zu (%.1lf%%) L:\"%s\"",
+            "H/s:%.1lf%c C:%zu/%zu (%.1lf%%) T:%zu L:\"%s\"",
                 hashesPerSec,
                 multiplechar,
                 m_Cracked,
                 m_HashCount,
                 percent,
+                m_Processed,
                 printable.c_str()
         );
         if (count < sizeof(statusbuf) - 1)
@@ -244,6 +252,7 @@ CrackList::CrackWorker(
     std::vector<std::string> block;
     std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
     std::vector<uint8_t> hash(m_DigestLength);
+    std::string last_cracked;
 
     // Read a block of input words
     {
@@ -264,20 +273,21 @@ CrackList::CrackWorker(
             return;
         }
 
+        std::string line;
         do
         {
-            std::string line;
-
             getline(input, line);
 
-            if (line == m_LastLine)
-            {
-                continue;
-            }
+            // Strip cr and nl
+            line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+            line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
 
-            block.push_back(line);
-            m_LastLine = line;
-            m_Processed++;
+            if (line != m_LastLine)
+            {
+                block.push_back(line);
+                m_LastLine = line;
+                m_Processed++;
+            }
         } while(block.size() < m_BlockSize && !input.eof());
     }
 
@@ -287,10 +297,6 @@ CrackList::CrackWorker(
 
     for (auto& line : block)
     {
-        // Strip cr and nl
-        line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
-        line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
-
         DoHash(m_Algorithm, (uint8_t*)&line[0], line.size(), &hash[0]);
 
         if (Lookup(m_MappedHashesBase, m_MappedHashesSize, &hash[0]))
@@ -320,6 +326,7 @@ CrackList::CrackWorker(
 
     if (cracked.size() > 0)
     {
+        last_cracked = std::get<2>(cracked.back());
         dispatch::PostTaskToDispatcher(
             "main",
             std::bind(
@@ -337,7 +344,7 @@ CrackList::CrackWorker(
             this,
             Id,
             elapsed_ms.count(),
-            block.back()
+            last_cracked
         )
     );
 
