@@ -205,7 +205,7 @@ CrackList::ThreadPulse(
 
         double percent = ((double)m_Cracked / m_HashCount) * 100.f;
 
-        char statusbuf[96];
+        char statusbuf[80];
         statusbuf[sizeof(statusbuf) - 1] = '\0';
         fprintf(stderr, "%s", "\r");
         fflush(stderr);
@@ -368,7 +368,7 @@ CrackList::Crack(
         std::cerr << "Error: no hash file specified" << m_HashFile << std::endl;
         return false;
     }
-    
+
     // Open the input file
     if (m_Wordlist != "-" && m_Wordlist != "")
     {
@@ -394,17 +394,17 @@ CrackList::Crack(
             return false;
         }
 
+        // Get the file size
+        m_MappedHashesSize = std::filesystem::file_size(m_HashFile);
         m_DigestLength = GetDigestLength(m_Algorithm);
+        m_HashCount = m_MappedHashesSize / m_DigestLength;
 
-        m_BinaryHashFileHandle = fopen(m_HashFile.c_str(), "r+");
+        m_BinaryHashFileHandle = fopen(m_HashFile.c_str(), "r");
         if (m_BinaryHashFileHandle == nullptr)
         {
             std::cerr << "Error: unable to open binary hash file" << std::endl;
             return false;
         }
-        
-        // Get the file size
-        m_MappedHashesSize = std::filesystem::file_size(m_HashFile);
 
         if (m_MappedHashesSize % m_DigestLength != 0)
         {
@@ -412,10 +412,8 @@ CrackList::Crack(
             return false;
         }
 
-        m_HashCount = m_MappedHashesSize / m_DigestLength;
-
         // Mmap the file
-        m_MappedHashesBase = (uint8_t*)mmap(nullptr, m_MappedHashesSize, PROT_READ|PROT_WRITE, MAP_SHARED, fileno(m_BinaryHashFileHandle), 0);
+        m_MappedHashesBase = (uint8_t*)mmap(nullptr, m_MappedHashesSize, PROT_READ, MAP_SHARED, fileno(m_BinaryHashFileHandle), 0);
         if (m_MappedHashesBase == nullptr)
         {
             std::cerr << "Error: Unable to map hashes file" << std::endl;
