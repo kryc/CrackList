@@ -11,6 +11,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <queue>
 #include <shared_mutex>
 #include <string>
 #include <tuple>
@@ -43,13 +44,14 @@ public:
     const bool CrackLinear(void);
     void CrackWorker(const size_t Id);
     void OutputResults(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> Results);
-    void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string Last);
+    void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string LastCracked, const std::string LastTry);
     void WorkerFinished(void);
 private:
     const bool Lookup(const uint8_t* Base, const size_t Size, const uint8_t* Hash) const;
     const bool CheckDuplicate(const std::vector<uint8_t>& Hash) const;
     void AddDuplicate(const std::vector<uint8_t>& Hash);
     const bool CheckAndAddDuplicate(const std::vector<uint8_t>& Hash);
+    void ReadInput(void);
     std::filesystem::path m_HashFile;
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;
@@ -72,6 +74,9 @@ private:
     std::shared_mutex m_DedupeMutex;
     // Threading
     std::mutex m_InputMutex;
+    std::queue<std::vector<std::string>> m_InputCache;
+    size_t m_CacheSizeBlocks = 10;
+    bool m_Exhausted = false;
     size_t m_Threads = 1;
     dispatch::DispatcherBasePtr m_MainThread;
     dispatch::DispatcherPoolPtr m_DispatchPool;

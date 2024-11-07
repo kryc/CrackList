@@ -67,13 +67,15 @@ CrackList::CrackLinear(
 
     auto start = std::chrono::system_clock::now();
 
-    for( std::string line; getline(input, line); )
+    for( std::string line; std::getline(input, line); )
     {
-        // Strip cr and nl
-        line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
-        line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
+        // Strip carriage return if present at the end
+        if (!line.empty() && line.back() == '\r')
+        {
+            line.pop_back();
+        }
 
-        if (line == m_LastLine)
+        if (line.empty() || line == m_LastLine)
         {
             continue;
         }
@@ -99,7 +101,7 @@ CrackList::CrackLinear(
         {
             auto end = std::chrono::system_clock::now();
             auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-            ThreadPulse(0, elapsed_ms.count(), line);
+            ThreadPulse(0, elapsed_ms.count(), last_cracked, line);
             start = std::chrono::system_clock::now();
         }
     }
@@ -161,31 +163,44 @@ void
 CrackList::ThreadPulse(
     const size_t ThreadId,
     const uint64_t BlockTime,
-    const std::string Last
+    const std::string LastCracked,
+    const std::string LastTry
 )
 {
     m_LastBlockMs[ThreadId] = BlockTime;
 
-    if (!Last.empty())
+    if (!LastCracked.empty())
     {
-        m_LastCracked = Last;
+        m_LastCracked = LastCracked;
     }
 
-    std::string printable = m_LastCracked;
-    std::transform(printable.begin(), printable.end(), printable.begin(),
+    if (ThreadId != 0)
+    {
+        return;
+    }
+
+    std::string printable_cracked = m_LastCracked;
+    std::transform(printable_cracked.begin(), printable_cracked.end(), printable_cracked.begin(),
+        [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
+
+    std::string printable_last = LastTry;
+    std::transform(printable_last.begin(), printable_last.end(), printable_last.begin(),
         [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
 
     // Output the status if we are not printing to stdout
     if (!m_OutFile.string().empty())
     {
-        double averageMs = 0;
-        for (auto const& [thread, val] : m_LastBlockMs)
-        {
-            averageMs += val;
-        }
-        averageMs /= m_Threads;
+        // double averageMs = 0;
+        // for (auto const& [thread, val] : m_LastBlockMs)
+        // {
+        //     averageMs += val;
+        // }
+        // averageMs /= m_Threads;
 
-        double hashesPerSec = 1000.f * (m_BlockSize / averageMs);
+        // double hashesPerSec = 1000.f * (m_BlockSize / averageMs);
+
+        double hashesPerSec = 1000.f * ((double)m_BlockSize / BlockTime);
+
         char multiplechar = ' ';
         if (hashesPerSec > 1000000000.f)
         {
@@ -212,14 +227,15 @@ CrackList::ThreadPulse(
         memset(statusbuf, ' ', sizeof(statusbuf) - 1);
         int count = snprintf(
             statusbuf, sizeof(statusbuf),
-            "H/s:%.1lf%c C:%zu/%zu (%.1lf%%) T:%zu L:\"%s\"",
+            "H/s:%.1lf%c C:%zu/%zu (%.1lf%%) T:%zu C:\"%s\" L:\"%s\"",
                 hashesPerSec,
                 multiplechar,
                 m_Cracked,
                 m_HashCount,
                 percent,
                 m_Processed,
-                printable.c_str()
+                printable_cracked.c_str(),
+                printable_last.c_str()
         );
         if (count < sizeof(statusbuf) - 1)
         {
@@ -250,7 +266,6 @@ CrackList::CrackWorker(
 )
 {
     std::vector<std::string> block;
-    std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
     std::vector<uint8_t> hash(m_DigestLength);
     std::string last_cracked;
 
@@ -258,7 +273,8 @@ CrackList::CrackWorker(
     {
         std::lock_guard<std::mutex> lock(m_InputMutex);
 
-        if (input.eof())
+        // Check if all input is done
+        if (m_InputCache.empty() && m_Exhausted)
         {
             // Track the completion of this worker
             dispatch::PostTaskToDispatcher(
@@ -272,23 +288,25 @@ CrackList::CrackWorker(
             dispatch::CurrentQueue()->Stop();
             return;
         }
-
-        std::string line;
-        do
+        else if (!m_InputCache.empty())
         {
-            getline(input, line);
+            block = std::move(m_InputCache.front());
+            m_InputCache.pop();
+        }
+    }
 
-            // Strip cr and nl
-            line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
-            line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
-
-            if (line != m_LastLine)
-            {
-                block.push_back(line);
-                m_LastLine = line;
-                m_Processed++;
-            }
-        } while(block.size() < m_BlockSize && !input.eof());
+    // We need to wait for more input
+    if (block.empty())
+    {
+        usleep(50);
+        dispatch::PostTaskFast(
+            dispatch::bind(
+                &CrackList::CrackWorker,
+                this,
+                Id
+            )
+        );
+        return;
     }
 
     std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> cracked;
@@ -344,7 +362,8 @@ CrackList::CrackWorker(
             this,
             Id,
             elapsed_ms.count(),
-            last_cracked
+            last_cracked,
+            block.back()
         )
     );
 
@@ -353,6 +372,68 @@ CrackList::CrackWorker(
             &CrackList::CrackWorker,
             this,
             Id
+        )
+    );
+}
+
+void
+CrackList::ReadInput(
+    void
+)
+{
+    std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
+    std::vector<std::string> block;
+    std::string line;
+
+    // for (
+    //     size_t i = 0;
+    //         m_Exhausted == false &&
+    //         i < m_Threads &&
+    //         m_InputCache.size() < m_Threads * m_CacheSizeBlocks;
+    //     i++)
+    while (!m_Exhausted && m_InputCache.size() < m_Threads * m_CacheSizeBlocks)
+    {
+        // Loop until the block is full or the input is exhausted
+        do
+        {
+            if (input.eof())
+            {
+                m_Exhausted = true;
+                break;
+            }
+
+            std::getline(input, line);
+
+            // Strip carriage return if present at the end
+            if (!line.empty() && line.back() == '\r')
+            {
+                line.pop_back();
+            }
+
+            if (line.empty() || line == m_LastLine)
+            {
+                continue;
+            }
+
+            m_LastLine = line;
+            block.push_back(std::move(line));
+            m_Processed++;
+        } while(block.size() < m_BlockSize && !m_Exhausted);
+
+        if (!block.empty())
+        {
+            std::lock_guard<std::mutex> lock(m_InputMutex);
+            m_InputCache.push(
+                std::move(block)
+            );
+        }
+    }
+
+    // Post the next task
+    dispatch::PostTaskFast(
+        dispatch::bind(
+            &CrackList::ReadInput,
+            this
         )
     );
 }
@@ -460,7 +541,8 @@ CrackList::Crack(
     dispatch::CreateAndEnterDispatcher(
         "main",
         std::bind(
-            &dispatch::DoNothing
+            &CrackList::ReadInput,
+            this
         )
     );
 
