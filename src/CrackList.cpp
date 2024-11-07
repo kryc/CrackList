@@ -60,50 +60,37 @@ CrackList::CrackLinear(
     void
 )
 {
-    std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
     std::ostream& output = m_OutputFileStream.is_open() ? m_OutputFileStream : std::cout;
     std::vector<uint8_t> hash(m_DigestLength);
     std::string last_cracked;
 
     auto start = std::chrono::system_clock::now();
 
-    for( std::string line; std::getline(input, line); )
+    while (!m_Exhausted)
     {
-        // Strip carriage return if present at the end
-        if (!line.empty() && line.back() == '\r')
+        auto block = ReadBlock();
+
+        for (auto& line : block)
         {
-            line.pop_back();
-        }
+            DoHash(m_Algorithm, (uint8_t*)&line[0], line.size(), &hash[0]);
 
-        if (line.empty() || line == m_LastLine)
-        {
-            continue;
-        }
-
-        m_LastLine = line;
-        m_Processed++;
-
-        DoHash(m_Algorithm, (uint8_t*)&line[0], line.size(), &hash[0]);
-
-        if (Lookup(m_MappedHashesBase, m_MappedHashesSize, &hash[0]))
-        {
-            if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
+            if (Lookup(m_MappedHashesBase, m_MappedHashesSize, &hash[0]))
             {
-                auto hex = Util::ToHex(&hash[0], hash.size());
-                hex = Util::ToLower(hex);
-                m_Cracked++;
-                output << hex << m_Separator << line << std::endl;
-                last_cracked = line;
+                if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
+                {
+                    auto hex = Util::ToHex(&hash[0], hash.size());
+                    hex = Util::ToLower(hex);
+                    m_Cracked++;
+                    output << hex << m_Separator << line << std::endl;
+                    last_cracked = line;
+                }
             }
         }
 
-        if (m_Processed % m_BlockSize == 0)
-        {
-            auto end = std::chrono::system_clock::now();
-            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-            ThreadPulse(0, elapsed_ms.count(), last_cracked, line);
-            start = std::chrono::system_clock::now();
-        }
+        auto end = std::chrono::system_clock::now();
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        ThreadPulse(0, elapsed_ms.count(), last_cracked, block.back());
+        start = std::chrono::system_clock::now();
     }
 
     return true;
@@ -376,8 +363,8 @@ CrackList::CrackWorker(
     );
 }
 
-void
-CrackList::ReadInput(
+std::vector<std::string>
+CrackList::ReadBlock(
     void
 )
 {
@@ -385,40 +372,44 @@ CrackList::ReadInput(
     std::vector<std::string> block;
     std::string line;
 
-    // for (
-    //     size_t i = 0;
-    //         m_Exhausted == false &&
-    //         i < m_Threads &&
-    //         m_InputCache.size() < m_Threads * m_CacheSizeBlocks;
-    //     i++)
+    // Loop until the block is full or the input is exhausted
+    do
+    {
+        if (input.eof())
+        {
+            m_Exhausted = true;
+            break;
+        }
+
+        std::getline(input, line);
+
+        // Strip carriage return if present at the end
+        if (!line.empty() && line.back() == '\r')
+        {
+            line.pop_back();
+        }
+
+        if (line.empty() || line == m_LastLine)
+        {
+            continue;
+        }
+
+        m_LastLine = line;
+        block.push_back(std::move(line));
+        m_Processed++;
+    } while(block.size() < m_BlockSize && !m_Exhausted);
+
+    return block;
+}
+
+void
+CrackList::ReadInput(
+    void
+)
+{
     while (!m_Exhausted && m_InputCache.size() < m_Threads * m_CacheSizeBlocks)
     {
-        // Loop until the block is full or the input is exhausted
-        do
-        {
-            if (input.eof())
-            {
-                m_Exhausted = true;
-                break;
-            }
-
-            std::getline(input, line);
-
-            // Strip carriage return if present at the end
-            if (!line.empty() && line.back() == '\r')
-            {
-                line.pop_back();
-            }
-
-            if (line.empty() || line == m_LastLine)
-            {
-                continue;
-            }
-
-            m_LastLine = line;
-            block.push_back(std::move(line));
-            m_Processed++;
-        } while(block.size() < m_BlockSize && !m_Exhausted);
+        auto block = ReadBlock();
 
         if (!block.empty())
         {
@@ -443,6 +434,8 @@ CrackList::Crack(
     void
 )
 {
+    bool result = false;
+
     // Check parameters
     if (m_HashFile.string() == "")
     {
@@ -517,36 +510,47 @@ CrackList::Crack(
     
     if (m_Threads == 1)
     {
-        return CrackLinear();
+        result = CrackLinear();
     }
-    else if (m_Threads == 0)
+    else 
     {
-        m_Threads = std::thread::hardware_concurrency();
-    }
+        if (m_Threads == 0)
+        {
+            m_Threads = std::thread::hardware_concurrency();
+        }
 
-    m_DispatchPool = dispatch::CreateDispatchPool("worker", m_Threads);
-    m_ActiveWorkers = m_Threads;
+        m_DispatchPool = dispatch::CreateDispatchPool("worker", m_Threads);
+        m_ActiveWorkers = m_Threads;
 
-    for (size_t i = 0; i < m_Threads; i++)
-    {
-        m_DispatchPool->PostTask(
-            dispatch::bind(
-                &CrackList::CrackWorker,
-                this,
-                i
+        for (size_t i = 0; i < m_Threads; i++)
+        {
+            m_DispatchPool->PostTask(
+                dispatch::bind(
+                    &CrackList::CrackWorker,
+                    this,
+                    i
+                )
+            );
+        }
+
+        dispatch::CreateAndEnterDispatcher(
+            "main",
+            std::bind(
+                &CrackList::ReadInput,
+                this
             )
         );
+
+        result = true;
     }
 
-    dispatch::CreateAndEnterDispatcher(
-        "main",
-        std::bind(
-            &CrackList::ReadInput,
-            this
-        )
-    );
+    // Terminate the status line
+    if (!m_OutFile.string().empty())
+    {
+        std::cerr << std::endl;
+    }
 
     std::cerr << "Cracked " << m_Cracked << " hashes" << std::endl;
 
-    return true;
+    return result;
 }

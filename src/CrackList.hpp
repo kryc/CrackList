@@ -52,6 +52,7 @@ private:
     void AddDuplicate(const std::vector<uint8_t>& Hash);
     const bool CheckAndAddDuplicate(const std::vector<uint8_t>& Hash);
     void ReadInput(void);
+    std::vector<std::string> ReadBlock(void);
     std::filesystem::path m_HashFile;
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;
