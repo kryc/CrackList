@@ -52,7 +52,7 @@ private:
     void AddDuplicate(const std::vector<uint8_t>& Hash);
     const bool CheckAndAddDuplicate(const std::vector<uint8_t>& Hash);
     void ReadInput(void);
-    std::vector<std::string> ReadBlock(void);
+    void ReadBlock(std::vector<std::string>& Block);
     std::filesystem::path m_HashFile;
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;
@@ -76,6 +76,7 @@ private:
     // Threading
     std::mutex m_InputMutex;
     std::queue<std::vector<std::string>> m_InputCache;
+    std::queue<std::vector<std::string>> m_Freelist;
     size_t m_CacheSizeBlocks = 65535;
     bool m_Exhausted = false;
     size_t m_Threads = 1;

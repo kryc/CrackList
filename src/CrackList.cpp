@@ -61,14 +61,17 @@ CrackList::CrackLinear(
 )
 {
     std::ostream& output = m_OutputFileStream.is_open() ? m_OutputFileStream : std::cout;
+    std::vector<std::string> block;
     std::vector<uint8_t> hash(m_DigestLength);
     std::string last_cracked;
+
+    block.resize(m_BlockSize);
 
     auto start = std::chrono::system_clock::now();
 
     while (!m_Exhausted)
     {
-        auto block = ReadBlock();
+        ReadBlock(block);
 
         for (auto& line : block)
         {
@@ -172,16 +175,18 @@ CrackList::ThreadPulse(
     // Output the status if we are not printing to stdout
     if (!m_OutFile.string().empty())
     {
-        // double averageMs = 0;
-        // for (auto const& [thread, val] : m_LastBlockMs)
-        // {
-        //     averageMs += val;
-        // }
-        // averageMs /= m_Threads;
+        uint64_t averageMs = 0;
+        for (auto const& [thread, val] : m_LastBlockMs)
+        {
+            averageMs += val;
+        }
+        // The average time a thread takes to do one block in ms
+        averageMs /= m_Threads;
 
-        // double hashesPerSec = 1000.f * (m_BlockSize / averageMs);
+        // The number of hashes per second
+        double hashesPerSec = (double)(m_BlockSize * 1000 * m_Threads) / averageMs;
 
-        double hashesPerSec = 1000.f * ((double)m_BlockSize / BlockTime);
+        // double hashesPerSec = (double)(m_BlockSize * 1000) / BlockTime;
 
         char multiplechar = ' ';
         if (hashesPerSec > 1000000000.f)
@@ -349,6 +354,16 @@ CrackList::CrackWorker(
         )
     );
 
+    // Return the used block to the free list
+    {
+        std::lock_guard<std::mutex> lock(m_InputMutex);
+
+        if (m_Freelist.size() < m_CacheSizeBlocks)
+        {
+            m_Freelist.push(std::move(block));
+        }
+    }
+
     dispatch::PostTaskFast(
         std::bind(
             &CrackList::CrackWorker,
@@ -358,14 +373,19 @@ CrackList::CrackWorker(
     );
 }
 
-std::vector<std::string>
+void
 CrackList::ReadBlock(
-    void
+    std::vector<std::string>& Block
 )
 {
     std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
-    std::vector<std::string> block;
     std::string line;
+    size_t index = 0;
+
+    if (Block.size() != m_BlockSize)
+    {
+        Block.resize(m_BlockSize);
+    }
 
     // Loop until the block is full or the input is exhausted
     do
@@ -390,11 +410,9 @@ CrackList::ReadBlock(
         }
 
         m_LastLine = line;
-        block.push_back(std::move(line));
+        Block[index++] = std::move(line);
         m_Processed++;
-    } while(block.size() < m_BlockSize && !m_Exhausted);
-
-    return block;
+    } while(index < m_BlockSize && !m_Exhausted);
 }
 
 void
@@ -410,14 +428,27 @@ CrackList::ReadInput(
     }
 
     bool cache_full = false;
+    std::vector<std::string> block;
 
     do
     {
-        auto block = ReadBlock();
+        // Check the free list for ablock we can reuse
+        {
+            std::lock_guard<std::mutex> lock(m_InputMutex);
+            
+            if (!m_Freelist.empty())
+            {
+                block = std::move(m_Freelist.front());
+                m_Freelist.pop();
+            }
+        }
+
+        ReadBlock(block);
 
         if (!block.empty())
         {
             std::lock_guard<std::mutex> lock(m_InputMutex);
+
             m_InputCache.push(
                 std::move(block)
             );
