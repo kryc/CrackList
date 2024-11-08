@@ -161,11 +161,6 @@ CrackList::ThreadPulse(
         m_LastCracked = LastCracked;
     }
 
-    if (ThreadId != 0)
-    {
-        return;
-    }
-
     std::string printable_cracked = m_LastCracked;
     std::transform(printable_cracked.begin(), printable_cracked.end(), printable_cracked.begin(),
         [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
@@ -407,7 +402,16 @@ CrackList::ReadInput(
     void
 )
 {
-    while (!m_Exhausted && m_InputCache.size() < m_Threads * m_CacheSizeBlocks)
+    // Terminate our current queue
+    if (m_Exhausted)
+    {
+        dispatch::CurrentQueue()->Stop();
+        return;
+    }
+
+    bool cache_full = false;
+
+    do
     {
         auto block = ReadBlock();
 
@@ -417,8 +421,12 @@ CrackList::ReadInput(
             m_InputCache.push(
                 std::move(block)
             );
+            if (m_InputCache.size() >= m_CacheSizeBlocks)
+            {
+                cache_full = true;
+            }
         }
-    }
+    } while(!cache_full && !m_Exhausted);
 
     // Post the next task
     dispatch::PostTaskFast(
@@ -519,6 +527,15 @@ CrackList::Crack(
             m_Threads = std::thread::hardware_concurrency();
         }
 
+        // Create our IO thread
+        m_IoThread = dispatch::CreateDispatcher(
+            "io",
+            dispatch::bind(
+                &CrackList::ReadInput,
+                this
+            )
+        );
+
         m_DispatchPool = dispatch::CreateDispatchPool("worker", m_Threads);
         m_ActiveWorkers = m_Threads;
 
@@ -536,8 +553,7 @@ CrackList::Crack(
         dispatch::CreateAndEnterDispatcher(
             "main",
             std::bind(
-                &CrackList::ReadInput,
-                this
+                dispatch::DoNothing
             )
         );
 

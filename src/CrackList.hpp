@@ -76,10 +76,11 @@ private:
     // Threading
     std::mutex m_InputMutex;
     std::queue<std::vector<std::string>> m_InputCache;
-    size_t m_CacheSizeBlocks = 10;
+    size_t m_CacheSizeBlocks = 65535;
     bool m_Exhausted = false;
     size_t m_Threads = 1;
     dispatch::DispatcherBasePtr m_MainThread;
+    dispatch::DispatcherBasePtr m_IoThread;
     dispatch::DispatcherPoolPtr m_DispatchPool;
     size_t m_ActiveWorkers;
     size_t m_BlockSize = 4096;
