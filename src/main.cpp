@@ -14,6 +14,7 @@
 
 #include "CrackList.hpp"
 #include "Util.hpp"
+#include "simdhash.h"
 
 #define ARGCHECK() \
     if (argc <= i) \

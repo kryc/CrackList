@@ -17,8 +17,7 @@
 #include <tuple>
 
 #include "DispatchQueue.hpp"
-
-#include "Common.hpp"
+#include "simdhash.h"
 
 class CrackList
 {
@@ -48,9 +47,9 @@ public:
     void WorkerFinished(void);
 private:
     const bool Lookup(const uint8_t* Base, const size_t Size, const uint8_t* Hash) const;
-    const bool CheckDuplicate(const std::vector<uint8_t>& Hash) const;
-    void AddDuplicate(const std::vector<uint8_t>& Hash);
-    const bool CheckAndAddDuplicate(const std::vector<uint8_t>& Hash);
+    const bool CheckDuplicate(const uint8_t* Hash) const;
+    void AddDuplicate(const uint8_t* Hash);
+    const bool CheckAndAddDuplicate(const uint8_t* Hash);
     void ReadInput(void);
     void ReadBlock(std::vector<std::string>& Block);
     std::filesystem::path m_HashFile;

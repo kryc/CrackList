@@ -17,7 +17,11 @@
 #include <tuple>
 #include <vector>
 
+#include "simdhash.h"
+#include "SimdHashBuffer.hpp"
+
 #include "CrackList.hpp"
+#include "Util.hpp"
 
 const bool
 CrackList::Lookup(
@@ -73,19 +77,51 @@ CrackList::CrackLinear(
     {
         ReadBlock(block);
 
-        for (auto& line : block)
-        {
-            DoHash(m_Algorithm, (uint8_t*)&line[0], line.size(), &hash[0]);
+        const size_t lanes = SimdLanes();
+        const size_t hashWidth = GetHashWidth(m_Algorithm);
+        SimdHashBufferFixed<MAX_OPTIMIZED_BUFFER_SIZE> words;
+        std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
 
-            if (Lookup(m_MappedHashesBase, m_MappedHashesSize, &hash[0]))
+        for (size_t i = 0; i < m_BlockSize; i+=lanes)
+        {
+            for (size_t j = 0; j < lanes; j++)
             {
-                if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
+                const std::string& line = block[i + j];
+                words.Set(j, line);
+            }
+
+            SimdHash(
+                m_Algorithm,
+                words.GetLengths(),
+                words.ConstBuffers(),
+                &hashes[0]
+            );
+
+            for (size_t h = 0; h < lanes; h++)
+            {
+                const uint8_t* hash = &hashes[h * hashWidth];
+                
+                if (Lookup(m_MappedHashesBase, m_MappedHashesSize, hash))
                 {
-                    auto hex = Util::ToHex(&hash[0], hash.size());
-                    hex = Util::ToLower(hex);
-                    m_Cracked++;
-                    output << hex << m_Separator << line << std::endl;
-                    last_cracked = line;
+                    // Check first in a shared lock
+                    if (m_Deduplicate)
+                    {
+                        std::shared_lock lock(m_DedupeMutex);
+                        if (CheckDuplicate(hash))
+                        {
+                            continue;
+                        }
+                    }
+
+                    // Check and add in a unique lock if not found
+                    if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
+                    {
+                        auto hex = Util::ToHex(hash, m_DigestLength);
+                        hex = Util::ToLower(hex);
+                        m_Cracked++;
+                        output << hex << m_Separator << block[i + h] << std::endl;
+                        last_cracked = block[h];
+                    }
                 }
             }
         }
@@ -95,13 +131,12 @@ CrackList::CrackLinear(
         ThreadPulse(0, elapsed_ms.count(), last_cracked, block.back());
         start = std::chrono::system_clock::now();
     }
-
     return true;
 }
 
 const bool
 CrackList::CheckDuplicate(
-    const std::vector<uint8_t>& Hash
+    const uint8_t* Hash
 ) const
 {
     if (m_Found.size() > 0 && Lookup(&m_Found[0], m_Found.size(), (const uint8_t*)&Hash[0]))
@@ -113,16 +148,16 @@ CrackList::CheckDuplicate(
 
 void
 CrackList::AddDuplicate(
-    const std::vector<uint8_t>& Hash
+    const uint8_t* Hash
 )
 {
-    m_Found.insert(m_Found.end(), Hash.begin(), Hash.end());
+    m_Found.insert(m_Found.end(), Hash, Hash + m_DigestLength);
     qsort_r(&m_Found[0], m_Found.size()/m_DigestLength, m_DigestLength, (__compar_d_fn_t)memcmp, (void*)m_DigestLength);
 }
 
 const bool
 CrackList::CheckAndAddDuplicate(
-    const std::vector<uint8_t>& Hash
+    const uint8_t* Hash
 )
 {
     std::unique_lock lock(m_DedupeMutex);
@@ -300,28 +335,49 @@ CrackList::CrackWorker(
 
     auto start = std::chrono::system_clock::now();
 
-    for (auto& line : block)
+    const size_t lanes = SimdLanes();
+    const size_t hashWidth = GetHashWidth(m_Algorithm);
+    SimdHashBufferFixed<MAX_OPTIMIZED_BUFFER_SIZE> words;
+    std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
+
+    for (size_t i = 0; i < m_BlockSize; i+=lanes)
     {
-        DoHash(m_Algorithm, (uint8_t*)&line[0], line.size(), &hash[0]);
-
-        if (Lookup(m_MappedHashesBase, m_MappedHashesSize, &hash[0]))
+        for (size_t j = 0; j < lanes; j++)
         {
-            // Check first in a shared lock
-            if (m_Deduplicate)
-            {
-                std::shared_lock lock(m_DedupeMutex);
-                if (CheckDuplicate(hash))
-                {
-                    continue;
-                }
-            }
+            const std::string& line = block[i + j];
+            words.Set(j, line);
+        }
 
-            // Check and add in a unique lock if not found
-            if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
+        SimdHash(
+            m_Algorithm,
+            words.GetLengths(),
+            words.ConstBuffers(),
+            &hashes[0]
+        );
+
+        for (size_t h = 0; h < lanes; h++)
+        {
+            const uint8_t* hash = &hashes[h * hashWidth];
+            
+            if (Lookup(m_MappedHashesBase, m_MappedHashesSize, hash))
             {
-                auto hex = Util::ToHex(&hash[0], hash.size());
-                hex = Util::ToLower(hex);
-                cracked.push_back({hash, hex, line});
+                // Check first in a shared lock
+                if (m_Deduplicate)
+                {
+                    std::shared_lock lock(m_DedupeMutex);
+                    if (CheckDuplicate(hash))
+                    {
+                        continue;
+                    }
+                }
+
+                // Check and add in a unique lock if not found
+                if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
+                {
+                    auto hex = Util::ToHex(hash, m_DigestLength);
+                    hex = Util::ToLower(hex);
+                    cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, block[i + h]});
+                }
             }
         }
     }
@@ -482,6 +538,12 @@ CrackList::Crack(
         return false;
     }
 
+    if (m_BlockSize % SimdLanes() != 0)
+    {
+        std::cerr << "Error: Block Size must be a multiple of Simd Lanes (" << SimdLanes() << ")" << std::endl;
+        return false;
+    }
+
     // Open the input file
     if (m_Wordlist != "-" && m_Wordlist != "")
     {
@@ -509,7 +571,7 @@ CrackList::Crack(
 
         // Get the file size
         m_MappedHashesSize = std::filesystem::file_size(m_HashFile);
-        m_DigestLength = GetDigestLength(m_Algorithm);
+        m_DigestLength = GetHashWidth(m_Algorithm);
         m_HashCount = m_MappedHashesSize / m_DigestLength;
 
         m_BinaryHashFileHandle = fopen(m_HashFile.c_str(), "r");

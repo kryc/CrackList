@@ -8,6 +8,7 @@ if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 endif()
 
+add_subdirectory(./SimdHash/)
 add_subdirectory(./libdispatchqueue/)
 
 # specify clang
@@ -18,8 +19,17 @@ SET(CMAKE_CXX_COMPILER clang++)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+message("Detected platform: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
+if (NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64")
+    if (NOT AVX OR AVX STREQUAL "" OR AVX STREQUAL "256")
+        set(AVXFLAG "-mavx2" CACHE STRING "" FORCE)
+    elseif(AVX STREQUAL "512")
+        set(AVXFLAG "-mavx512bw" CACHE STRING "" FORCE)
+    endif()
+endif()
+
 # set compiler flags
-set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations")
+set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations ${AVXFLAG}")
 set(CMAKE_EXE_LINKER_FLAGS "-lcrypto")
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -funroll-loops")
@@ -41,5 +51,6 @@ set_property(TARGET cracklist PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
 target_include_directories(cracklist
                             PUBLIC
                                 ./src/
+                                ./SimdHash/src/
                         )
-target_link_libraries(cracklist dispatchqueue)
+target_link_libraries(cracklist simdhash dispatchqueue)
