@@ -68,7 +68,7 @@ ToHex(
 
 	for (size_t i = 0; i < Length; i++)
 	{
-		snprintf(buffer, 3, "%02X", Bytes[i]);
+		snprintf(buffer, 3, "%02x", Bytes[i]);
 		ret.push_back(buffer[0]);
 		ret.push_back(buffer[1]);
 	}

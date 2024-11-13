@@ -36,6 +36,7 @@ public:
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     void SetBlockSize(const size_t BlockSize) { m_BlockSize = BlockSize; }
     void SetDeduplicate(const bool Deduplicate) { m_Deduplicate = Deduplicate; }
+    void DisableAutohex(void) { m_Hexlify = false; }
     const std::filesystem::path GetHashFile(void) const { return m_HashFile; }
     const std::filesystem::path GetOutFile(void) const { return m_OutFile; }
     const std::string GetWordlist(void) const { return m_Wordlist; }
@@ -56,6 +57,8 @@ private:
     const bool CheckAndAddDuplicate(const uint8_t* Hash);
     void ReadInput(void);
     void ReadBlock(std::vector<std::string>& Block);
+    const std::string Hexlify(const std::string& Value) const;
+    bool m_Hexlify = true;
     std::filesystem::path m_HashFile;
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;

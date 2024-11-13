@@ -24,6 +24,31 @@
 #include "HashList.hpp"
 #include "Util.hpp"
 
+const std::string
+CrackList::Hexlify(
+    const std::string& Value
+) const
+{
+    if (!m_Hexlify)
+    {
+        return Value;
+    }
+    bool needshex = false;
+    for (auto c : Value)
+    {
+        if (c < ' ' || c > '~' || c == ':')
+        {
+            needshex = true;
+            break;
+        }
+    }
+    if (!needshex)
+    {
+        return Value;
+    }
+    return "$HEX[" + Util::ToHex((const uint8_t*)Value.data(), Value.size()) + "]";
+}
+
 const bool
 CrackList::CrackLinear(
     void
@@ -83,7 +108,7 @@ CrackList::CrackLinear(
                         auto hex = Util::ToHex(hash, m_DigestLength);
                         hex = Util::ToLower(hex);
                         m_Cracked++;
-                        output << hex << m_Separator << words.GetString(h) << std::endl;
+                        output << hex << m_Separator << Hexlify(words.GetString(h)) << std::endl;
                         last_cracked = block[h];
                     }
                 }
@@ -341,7 +366,7 @@ CrackList::CrackWorker(
                 {
                     auto hex = Util::ToHex(hash, m_DigestLength);
                     hex = Util::ToLower(hex);
-                    cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, words.GetString(h)});
+                    cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, Hexlify(words.GetString(h))});
                 }
             }
         }
@@ -428,6 +453,13 @@ CrackList::ReadBlock(
         if (line.empty() || line == m_LastLine)
         {
             continue;
+        }
+
+        // Handle parsing "$HEX[]" input
+        if (line.starts_with("$HEX[") && line.back() == ']')
+        {
+            auto bytes = Util::ParseHex(line.substr(5, line.size() - 6));
+            line = std::string(bytes.begin(), bytes.end());
         }
 
         m_LastLine = line;
