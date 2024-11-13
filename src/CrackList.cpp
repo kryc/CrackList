@@ -21,43 +21,8 @@
 #include "SimdHashBuffer.hpp"
 
 #include "CrackList.hpp"
+#include "HashList.hpp"
 #include "Util.hpp"
-
-const bool
-CrackList::Lookup(
-    const uint8_t* Base,
-    const size_t Size,
-    const uint8_t* Hash
-) const
-{
-    // Perform the search
-    const uint8_t* base = Base;
-    const uint8_t* top = Base + Size;
-
-    uint8_t* low = (uint8_t*)base;
-    uint8_t* high = (uint8_t*)top - m_DigestLength;
-    uint8_t* mid;
-
-    while (low <= high)
-    {
-        mid = low + ((high - low) / (2 * m_DigestLength)) * m_DigestLength;
-        int cmp = memcmp(mid, Hash, m_DigestLength);
-        if (cmp == 0)
-        {
-            return true;
-        }
-        else if (cmp < 0)
-        {
-            low = mid + m_DigestLength;
-        }
-        else
-        {
-            high = mid - m_DigestLength;
-        }
-    }
-
-    return false;
-}
 
 const bool
 CrackList::CrackLinear(
@@ -101,12 +66,11 @@ CrackList::CrackLinear(
             {
                 const uint8_t* hash = &hashes[h * hashWidth];
                 
-                if (Lookup(m_MappedHashesBase, m_MappedHashesSize, hash))
+                if (m_HashList.Lookup(hash))
                 {
                     // Check first in a shared lock
                     if (m_Deduplicate)
                     {
-                        std::shared_lock lock(m_DedupeMutex);
                         if (CheckDuplicate(hash))
                         {
                             continue;
@@ -119,7 +83,7 @@ CrackList::CrackLinear(
                         auto hex = Util::ToHex(hash, m_DigestLength);
                         hex = Util::ToLower(hex);
                         m_Cracked++;
-                        output << hex << m_Separator << block[i + h] << std::endl;
+                        output << hex << m_Separator << words.GetString(h) << std::endl;
                         last_cracked = block[h];
                     }
                 }
@@ -139,7 +103,7 @@ CrackList::CheckDuplicate(
     const uint8_t* Hash
 ) const
 {
-    if (m_Found.size() > 0 && Lookup(&m_Found[0], m_Found.size(), (const uint8_t*)&Hash[0]))
+    if (m_Found.size() > 0 && HashList::Lookup(&m_Found[0], m_Found.size(), (const uint8_t*)&Hash[0], m_DigestLength))
     {
         return true;
     }
@@ -240,7 +204,8 @@ CrackList::ThreadPulse(
             multiplechar = 'k';
         }
 
-        double percent = ((double)m_Cracked / m_HashCount) * 100.f;
+        const size_t hashcount = m_HashList.GetCount();
+        double percent = ((double)m_Cracked / hashcount) * 100.f;
 
         char statusbuf[80];
         statusbuf[sizeof(statusbuf) - 1] = '\0';
@@ -253,7 +218,7 @@ CrackList::ThreadPulse(
                 hashesPerSec,
                 multiplechar,
                 m_Cracked,
-                m_HashCount,
+                hashcount,
                 percent,
                 m_Processed,
                 printable_cracked.c_str(),
@@ -359,7 +324,7 @@ CrackList::CrackWorker(
         {
             const uint8_t* hash = &hashes[h * hashWidth];
             
-            if (Lookup(m_MappedHashesBase, m_MappedHashesSize, hash))
+            if (m_HashList.Lookup(hash))
             {
                 // Check first in a shared lock
                 if (m_Deduplicate)
@@ -376,7 +341,7 @@ CrackList::CrackWorker(
                 {
                     auto hex = Util::ToHex(hash, m_DigestLength);
                     hex = Util::ToLower(hex);
-                    cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, block[i + h]});
+                    cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, words.GetString(h)});
                 }
             }
         }
@@ -557,7 +522,7 @@ CrackList::Crack(
 
     if (m_OutFile != "")
     {
-        m_OutputFileStream.open(m_OutFile, std::ios::out);
+        m_OutputFileStream.open(m_OutFile, std::ios::out | std::ios::app);
     }
 
     // Open the hash file
@@ -569,42 +534,8 @@ CrackList::Crack(
             return false;
         }
 
-        // Get the file size
-        m_MappedHashesSize = std::filesystem::file_size(m_HashFile);
         m_DigestLength = GetHashWidth(m_Algorithm);
-        m_HashCount = m_MappedHashesSize / m_DigestLength;
-
-        m_BinaryHashFileHandle = fopen(m_HashFile.c_str(), "r");
-        if (m_BinaryHashFileHandle == nullptr)
-        {
-            std::cerr << "Error: unable to open binary hash file" << std::endl;
-            return false;
-        }
-
-        if (m_MappedHashesSize % m_DigestLength != 0)
-        {
-            std::cerr << "Error: length of hash file does not match digest" << std::endl;
-            return false;
-        }
-
-        // Mmap the file
-        m_MappedHashesBase = (uint8_t*)mmap(nullptr, m_MappedHashesSize, PROT_READ, MAP_SHARED, fileno(m_BinaryHashFileHandle), 0);
-        if (m_MappedHashesBase == nullptr)
-        {
-            std::cerr << "Error: Unable to map hashes file" << std::endl;
-            return false;
-        }
-
-        auto ret = madvise(m_MappedHashesBase, m_MappedHashesSize, MADV_RANDOM|MADV_WILLNEED);
-        if (ret != 0)
-        {
-            std::cerr << "Madvise not happy" << std::endl;
-            return false;
-        }
-
-        // Sort the hashes
-        // std::cerr << "Sorting hashes" << std::endl;
-        // qsort_r(m_MappedHashesBase, m_HashCount, m_DigestLength, (__compar_d_fn_t)memcmp, (void*)m_DigestLength);
+        m_HashList.Initialize(m_HashFile, m_DigestLength);
     }
 
     std::cerr << "Beginning cracking" << std::endl;

@@ -6,6 +6,9 @@
 //  Copyright © 2024 Kryc. All rights reserved.
 //
 
+#ifndef CrackList_hpp
+#define CrackList_hpp
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -18,6 +21,8 @@
 
 #include "DispatchQueue.hpp"
 #include "simdhash.h"
+
+#include "HashList.hpp"
 
 class CrackList
 {
@@ -46,7 +51,6 @@ public:
     void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string LastCracked, const std::string LastTry);
     void WorkerFinished(void);
 private:
-    const bool Lookup(const uint8_t* Base, const size_t Size, const uint8_t* Hash) const;
     const bool CheckDuplicate(const uint8_t* Hash) const;
     void AddDuplicate(const uint8_t* Hash);
     const bool CheckAndAddDuplicate(const uint8_t* Hash);
@@ -57,12 +61,9 @@ private:
     std::string m_Wordlist;
     HashAlgorithm m_Algorithm = HashAlgorithmUndefined;
     size_t m_DigestLength;
+    HashList m_HashList;
     std::ifstream m_WordlistFileStream;
     std::ofstream m_OutputFileStream;
-    FILE* m_BinaryHashFileHandle;
-    uint8_t* m_MappedHashesBase;
-    size_t m_MappedHashesSize;
-    size_t m_HashCount;
     bool m_BinaryHashFile = true;
     std::string m_Separator = ":";
     std::string m_LastLine;
@@ -86,3 +87,5 @@ private:
     size_t m_BlockSize = 4096;
     std::map<size_t, uint64_t> m_LastBlockMs;
 };
+
+#endif //CrackList_hpp
