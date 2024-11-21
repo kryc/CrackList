@@ -14,6 +14,13 @@
 
 #include "HashList.hpp"
 
+// The threshold at which we perform an index
+// of all of the hashes and perform fast lookup
+#define FAST_LOOKUP_THRESHOLD (65536 * 4)
+// The threshold below which we just perform linear
+// lookups and not bother with binary search
+#define LINEAR_LOOKUP_THRESHOLD (512)
+
 const bool
 HashList::Lookup(
     const uint8_t* Base,
@@ -115,41 +122,15 @@ HashList::InitializeInternal(
     uint16_t last = *(uint16_t*)next;
     m_MappedTableLookup[last] = base;
 
-    constexpr size_t READAHEAD = 64;
+    constexpr size_t READAHEAD = 256;
 
-    //
-    // For small lists we can just check each item
-    //
-    if (m_Size / m_DigestLength < 65536 * 2)
-    {
-        size_t count = 0;
-        for (size_t i = 0; i < GetCount(); i++)
-        {
-            const uint16_t index = *(uint16_t*)next;
-            // New id, we need to walk back
-            if (index != last)
-            {
-                m_MappedTableLookupSize[last] = count;
-                m_MappedTableLookup[index] = next;
-                count = 1;
-            }
-            else
-            {
-                count++;
-            }
-            last = index;
-            next += m_DigestLength;
-        }
-        m_MappedTableLookupSize[last] = count;
-    }
-    //
-    // For very large lists we need to skip ahead
-    // then work backwards
-    //
-    else
+    // For lists larger than FAST_LOOKUP_THRESHOLD
+    // We need to index the offset list
+    if (m_Count >= FAST_LOOKUP_THRESHOLD)
     {
         // First pass
-        for (size_t i = 0; i < GetCount(); i+= READAHEAD)
+        std::cerr << "Pass 1" << std::endl;
+        for (size_t i = 0; i < m_Count; i+= READAHEAD)
         {
             const uint16_t index = *(uint16_t*)next;
             if (index != last)
@@ -160,34 +141,60 @@ HashList::InitializeInternal(
             next += (m_DigestLength * READAHEAD);
         }
 
-        // Loop over each known endpoint
-        for (size_t i = 0; i < LOOKUP_SIZE; i++)
+        // Second pass
+        std::cerr << "Pass 2" << std::endl;
+        for (size_t i = READAHEAD/2; i < m_Count; i+= READAHEAD)
         {
-            const uint8_t* offset = m_MappedTableLookup[i];
-            if (offset == nullptr)
+            const uint16_t index = *(uint16_t*)next;
+            if (m_MappedTableLookup[index] == nullptr ||
+                m_MappedTableLookup[index] > next)
             {
-                continue;
+                m_MappedTableLookup[index] = next;
             }
-
-            // Check if it is the base
-            if (offset == base)
-            {
-                continue;
-            }
-
-            // Walk backwards until we find the previous
-            const uint16_t index = *(uint16_t*)offset;
-            for (;;)
-            {
-                offset -= m_DigestLength;
-                const uint16_t next = *(uint16_t*)offset;
-                if (next != index)
-                {
-                    break;
-                }
-                m_MappedTableLookup[i] -= m_DigestLength;
-            }
+            next += (m_DigestLength * READAHEAD);
         }
+
+        // Third pass -> N'th pass
+        // Loop over each known endpoint and check the previous entry
+        size_t pass = 3;
+        bool foundNewEntry;
+        do
+        {
+            foundNewEntry = false;
+            std::cerr << "Pass " << pass++ << std::endl;
+            for (size_t i = 0; i < LOOKUP_SIZE; i++)
+            {
+                const uint8_t* offset = m_MappedTableLookup[i];
+                if (offset == nullptr)
+                {
+                    continue;
+                }
+
+                // Check if it is the base
+                if (offset == base)
+                {
+                    continue;
+                }
+
+                // Walk backwards until we find the previous
+                const uint16_t index = *(uint16_t*)offset;
+                for (;;)
+                {
+                    offset -= m_DigestLength;
+                    const uint16_t next = *(uint16_t*)offset;
+                    if (next != index)
+                    {
+                        if (m_MappedTableLookup[next] == nullptr)
+                        {
+                            m_MappedTableLookup[next] = offset;
+                            foundNewEntry = true;
+                        }
+                        break;
+                    }
+                    m_MappedTableLookup[i] -= m_DigestLength;
+                }
+            }
+        } while(foundNewEntry);
 
         // Calculate the counts
         // We walk through each item, look for the next offset
@@ -239,18 +246,25 @@ HashList::InitializeInternal(
 }
 
 const bool
-HashList::Lookup(
+HashList::LookupLinear(
     const uint8_t* Hash
 ) const
 {
-#if 0
-    return Lookup(
-        m_Base,
-        m_Size,
-        Hash,
-        m_DigestLength
-    );
-#else
+    for (uint8_t* offset = m_Base; offset < m_Base + m_Size; offset += m_DigestLength)
+    {
+        if (memcmp(offset, Hash, m_DigestLength) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+const bool
+HashList::LookupFast(
+    const uint8_t* Hash
+) const
+{
     const uint16_t index = *(uint16_t*)Hash;
     const uint8_t* base = m_MappedTableLookup[index];
     const size_t size = m_MappedTableLookupSize[index];
@@ -266,7 +280,38 @@ HashList::Lookup(
         Hash,
         m_DigestLength
     );
-#endif
+}
+
+const bool
+HashList::LookupBinary(
+    const uint8_t* Hash
+) const
+{
+    return Lookup(
+        m_Base,
+        m_Size,
+        Hash,
+        m_DigestLength
+    );
+}
+
+const bool
+HashList::Lookup(
+    const uint8_t* Hash
+) const
+{
+    if (m_Count >= FAST_LOOKUP_THRESHOLD)
+    {
+        return LookupFast(Hash);
+    }
+    else if (m_Count <= LINEAR_LOOKUP_THRESHOLD)
+    {
+        return LookupLinear(Hash);
+    }
+    else
+    {
+        return LookupBinary(Hash);
+    }
 }
 
 void

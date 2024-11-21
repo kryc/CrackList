@@ -19,6 +19,9 @@ public:
     HashList(void) = default;
     const bool Initialize(const std::filesystem::path Path, const size_t DigestLength);
     const bool Lookup(const uint8_t* Hash) const;
+    const bool LookupLinear(const uint8_t* Hash) const;
+    const bool LookupFast(const uint8_t* Hash) const;
+    const bool LookupBinary(const uint8_t* Hash) const;
     void Sort(void);
     const size_t GetCount(void) const { return m_Count; };
     // Static
