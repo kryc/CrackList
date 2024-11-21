@@ -24,6 +24,8 @@
 #include "HashList.hpp"
 #include "Util.hpp"
 
+#define MAX_STRING_LENGTH 128
+
 const std::string
 CrackList::Hexlify(
     const std::string& Value
@@ -69,7 +71,7 @@ CrackList::CrackLinear(
 
         const size_t lanes = SimdLanes();
         const size_t hashWidth = GetHashWidth(m_Algorithm);
-        SimdHashBufferFixed<MAX_OPTIMIZED_BUFFER_SIZE> words;
+        SimdHashBufferFixed<MAX_STRING_LENGTH> words;
         std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
 
         for (size_t i = 0; i < m_BlockSize; i+=lanes)
@@ -327,7 +329,7 @@ CrackList::CrackWorker(
 
     const size_t lanes = SimdLanes();
     const size_t hashWidth = GetHashWidth(m_Algorithm);
-    SimdHashBufferFixed<MAX_OPTIMIZED_BUFFER_SIZE> words;
+    SimdHashBufferFixed<MAX_STRING_LENGTH> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
 
     for (size_t i = 0; i < m_BlockSize; i+=lanes)

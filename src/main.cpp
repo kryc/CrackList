@@ -31,6 +31,7 @@ int main(
     if (argc < 2)
     {
         std::cerr << "Usage: " << argv[0] << " hashfile wordlist" << std::endl;
+        return 0;
     }
 
     CrackList cracklist;
@@ -54,9 +55,16 @@ int main(
             ARGCHECK();
             cracklist.SetBlockSize(atoi(argv[++i]));
         }
-        else if (arg == "--sha1")
+        else if (arg == "--sha1" || arg == "--ntlm" || arg == "--md5" || arg == "--md4")
         {
-            cracklist.SetAlgorithm(HashAlgorithmSHA1);
+            auto algoStr = arg.substr(2);
+            auto algorithm = ParseHashAlgorithm(algoStr.c_str());
+            if (algorithm == HashAlgorithmUndefined)
+            {
+                std::cerr << "Unrecognised hash algorithm \"" << algoStr << "\"" << std::endl;
+                return 1;
+            }
+            cracklist.SetAlgorithm(algorithm);
         }
         else if (arg == "--dedup")
         {
