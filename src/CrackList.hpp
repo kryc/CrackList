@@ -28,7 +28,7 @@ class CrackList
 {
 public:
     CrackList() = default;
-    void SetHashFile(const std::filesystem::path HashFile) { m_HashFile = HashFile; }
+    void SetHashFile(const std::string HashFile) { m_HashFile = HashFile; }
     void SetOutFile(const std::filesystem::path OutFile) { m_OutFile = OutFile; }
     void SetWordlist(const std::string Wordlist) { m_Wordlist = Wordlist; }
     void SetAlgorithm(const HashAlgorithm Algorithm) { m_Algorithm = Algorithm; }
@@ -36,8 +36,9 @@ public:
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     void SetBlockSize(const size_t BlockSize) { m_BlockSize = BlockSize; }
     void SetDeduplicate(const bool Deduplicate) { m_Deduplicate = Deduplicate; }
+    void SetBinary(const bool Binary) { m_BinaryHashFile = Binary; }
     void DisableAutohex(void) { m_Hexlify = false; }
-    const std::filesystem::path GetHashFile(void) const { return m_HashFile; }
+    const std::string GetHashFile(void) const { return m_HashFile; }
     const std::filesystem::path GetOutFile(void) const { return m_OutFile; }
     const std::string GetWordlist(void) const { return m_Wordlist; }
     const HashAlgorithm GetAlgorithm(void) const { return m_Algorithm; }
@@ -45,6 +46,7 @@ public:
     const size_t GetThreads(void) const { return m_Threads; }
     const size_t GetBlockSize(void) const { return m_BlockSize; }
     const bool GetDeduplicate(void) const { return m_Deduplicate; }
+    const bool GetBinary(void) const { return m_BinaryHashFile; }
     const bool Crack(void);
     const bool CrackLinear(void);
     void CrackWorker(const size_t Id);
@@ -59,7 +61,8 @@ private:
     void ReadBlock(std::vector<std::string>& Block);
     const std::string Hexlify(const std::string& Value) const;
     bool m_Hexlify = true;
-    std::filesystem::path m_HashFile;
+    std::vector<uint8_t> m_Hashes;
+    std::string m_HashFile;
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;
     HashAlgorithm m_Algorithm = HashAlgorithmUndefined;
@@ -67,10 +70,11 @@ private:
     HashList m_HashList;
     std::ifstream m_WordlistFileStream;
     std::ofstream m_OutputFileStream;
-    bool m_BinaryHashFile = true;
+    bool m_BinaryHashFile;
     std::string m_Separator = ":";
     std::string m_LastLine;
     std::string m_LastCracked;
+    size_t m_Count;
     size_t m_Processed = 0;
     size_t m_Cracked = 0;
     bool m_Deduplicate = false;

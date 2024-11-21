@@ -121,6 +121,11 @@ CrackList::CrackLinear(
         auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         ThreadPulse(0, elapsed_ms.count(), last_cracked, block.back());
         start = std::chrono::system_clock::now();
+
+        if (m_Cracked == m_Count)
+        {
+            break;
+        }
     }
     return true;
 }
@@ -130,7 +135,9 @@ CrackList::CheckDuplicate(
     const uint8_t* Hash
 ) const
 {
-    if (m_Found.size() > 0 && HashList::Lookup(&m_Found[0], m_Found.size(), (const uint8_t*)&Hash[0], m_DigestLength))
+    if (m_Found.size() > 0 &&
+        HashList::Lookup(&m_Found[0], m_Found.size(), (const uint8_t*)&Hash[0], m_DigestLength)
+    )
     {
         return true;
     }
@@ -172,6 +179,12 @@ CrackList::OutputResults(
         m_Cracked++;
         output << x << m_Separator << v << std::endl;
         m_LastCracked = v;
+    }
+
+    // Check if we have found all the tarets
+    if (m_Cracked == m_Count)
+    {
+        m_Exhausted = true;
     }
 }
 
@@ -531,7 +544,7 @@ CrackList::Crack(
     bool result = false;
 
     // Check parameters
-    if (m_HashFile.string() == "")
+    if (m_HashFile == "")
     {
         std::cerr << "Error: no hash file specified" << m_HashFile << std::endl;
         return false;
@@ -571,6 +584,55 @@ CrackList::Crack(
         m_DigestLength = GetHashWidth(m_Algorithm);
         m_HashList.Initialize(m_HashFile, m_DigestLength);
     }
+    else if (std::filesystem::is_character_file(m_HashFile))
+    {
+        std::cerr << "Parsing hash list" << std::endl;
+
+        std::ifstream infile(m_HashFile);
+        std::string line;
+        while (std::getline(infile, line))
+        {
+            if (m_Algorithm == HashAlgorithmUndefined)
+            {
+                m_Algorithm = DetectHashAlgorithmHex(line.size());
+                if (m_Algorithm == HashAlgorithmUndefined)
+                {
+                    std::cerr << "Unable to detect hash algorithm" << std::endl;
+                    return false;
+                }
+                std::cerr << HashAlgorithmToString(m_Algorithm) << " detected" << std::endl;
+                m_DigestLength = GetHashWidth(m_Algorithm);
+            }
+            if (line.size() != m_DigestLength * 2)
+            {
+                std::cerr << "Invalid hash found, ignoring " << line.size() << "!=" << m_DigestLength * 2 << ": \"" << line << "\"" << std::endl;
+                continue;
+            }
+
+            // Add the new hash to the list
+            auto bytes = Util::ParseHex(line);
+            m_Hashes.insert(m_Hashes.end(), bytes.begin(), bytes.end());
+        }
+
+        m_HashList.Initialize(&m_Hashes[0], m_Hashes.size(), m_DigestLength, true);
+    }
+    else if (Util::IsHex(m_HashFile))
+    {
+        m_Algorithm = DetectHashAlgorithmHex(m_HashFile.size());
+        if (m_Algorithm == HashAlgorithmUndefined)
+        {
+            std::cerr << "Unable to detect hash algorithm" << std::endl;
+            return false;
+        }
+        m_DigestLength = GetHashWidth(m_Algorithm);
+        std::cerr << HashAlgorithmToString(m_Algorithm) << " detected" << std::endl;
+        // Add the new hash to the list
+        auto bytes = Util::ParseHex(m_HashFile);
+        m_Hashes.insert(m_Hashes.end(), bytes.begin(), bytes.end());
+        m_HashList.Initialize(&m_Hashes[0], m_Hashes.size(), m_DigestLength, false);
+    }
+
+    m_Count = m_HashList.GetCount();
 
     std::cerr << "Beginning cracking" << std::endl;
     

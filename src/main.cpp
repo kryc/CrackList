@@ -66,6 +66,10 @@ int main(
             }
             cracklist.SetAlgorithm(algorithm);
         }
+        else if (arg == "--binary" || arg == "--b")
+        {
+            cracklist.SetBinary(true);
+        }
         else if (arg == "--dedup")
         {
             cracklist.SetDeduplicate(true);

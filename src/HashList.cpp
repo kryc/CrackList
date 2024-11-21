@@ -61,7 +61,8 @@ HashList::Lookup(
 const bool
 HashList::Initialize(
     const std::filesystem::path Path,
-    const size_t DigestLength
+    const size_t DigestLength,
+    const bool Sort
 )
 {
     m_Path = Path;
@@ -90,6 +91,32 @@ HashList::Initialize(
     {
         std::cerr << "Error: Unable to map hashes file" << std::endl;
         return false;
+    }
+
+    if (Sort)
+    {
+        this->Sort();
+    }
+
+    return InitializeInternal();
+}
+
+const bool
+HashList::Initialize(
+    uint8_t* Base,
+    const size_t Size,
+    const size_t DigestLength,
+    const bool Sort
+)
+{
+    m_Base = Base;
+    m_Size = Size;
+    m_DigestLength = DigestLength;
+    m_Count = m_Size / m_DigestLength;
+    
+    if (Sort)
+    {
+        this->Sort();
     }
 
     return InitializeInternal();

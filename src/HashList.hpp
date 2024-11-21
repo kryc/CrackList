@@ -17,7 +17,8 @@ class HashList
 {
 public:
     HashList(void) = default;
-    const bool Initialize(const std::filesystem::path Path, const size_t DigestLength);
+    const bool Initialize(const std::filesystem::path Path, const size_t DigestLength, const bool Sort = false);
+    const bool Initialize(uint8_t* Base, const size_t Size, const size_t DigestLength, const bool Sort = true);
     const bool Lookup(const uint8_t* Hash) const;
     const bool LookupLinear(const uint8_t* Hash) const;
     const bool LookupFast(const uint8_t* Hash) const;
