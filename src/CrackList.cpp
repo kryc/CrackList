@@ -166,8 +166,8 @@ CrackList::CheckAndAddDuplicate(
 }
 
 void
-CrackList::OutputResults(
-    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> Results
+CrackList::OutputResultsInternal(
+    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>>& Results
 )
 {
     std::ostream& output = m_OutputFileStream.is_open() ? m_OutputFileStream : std::cout;
@@ -184,6 +184,21 @@ CrackList::OutputResults(
     {
         m_Finished = true;
     }
+}
+
+void
+CrackList::OutputResults(
+    void
+)
+{
+    // Take a copy of the results
+    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> copy;
+    {
+        std::lock_guard<std::mutex> lock(m_ResultsMutex);
+        copy = std::move(m_Results);
+    }
+
+    OutputResultsInternal(copy);
 }
 
 void
@@ -294,26 +309,27 @@ CrackList::CrackWorker(
     std::vector<uint8_t> hash(m_DigestLength);
     std::string last_cracked;
 
-    // Read a block of input words
+    srand(Id);
+
+    // Check if all input is done
+    if (m_Finished && m_InputCache.empty())
+    {
+        // Track the completion of this worker
+        dispatch::PostTaskToDispatcher(
+            "main",
+            std::bind(
+                &CrackList::WorkerFinished,
+                this
+            )
+        );
+        // Terminate our current queue
+        dispatch::CurrentQueue()->Stop();
+        return;
+    }
+
     {
         std::lock_guard<std::mutex> lock(m_InputMutex);
-
-        // Check if all input is done
-        if (m_InputCache.empty() && m_Finished)
-        {
-            // Track the completion of this worker
-            dispatch::PostTaskToDispatcher(
-                "main",
-                std::bind(
-                    &CrackList::WorkerFinished,
-                    this
-                )
-            );
-            // Terminate our current queue
-            dispatch::CurrentQueue()->Stop();
-            return;
-        }
-        else if (!m_InputCache.empty())
+        if (!m_InputCache.empty())
         {
             block = std::move(m_InputCache.front());
             m_InputCache.pop();
@@ -323,7 +339,7 @@ CrackList::CrackWorker(
     // We need to wait for more input
     if (block.empty())
     {
-        usleep(50);
+        usleep(rand() % 100);
         dispatch::PostTaskFast(
             dispatch::bind(
                 &CrackList::CrackWorker,
@@ -391,15 +407,21 @@ CrackList::CrackWorker(
 
     if (cracked.size() > 0)
     {
+        std::lock_guard<std::mutex> lock(m_ResultsMutex);
         last_cracked = std::get<2>(cracked.back());
-        dispatch::PostTaskToDispatcher(
-            "main",
-            std::bind(
-                &CrackList::OutputResults,
-                this,
-                std::move(cracked)
-            )
-        );
+        OutputResultsInternal(cracked);
+        // bool willupdate = m_Results.size() < 8192;
+        // m_Results.insert(m_Results.end(), cracked.begin(), cracked.end());
+        // if (m_Results.size() > 8192 && willupdate)
+        // {
+        //     dispatch::PostTaskToDispatcher(
+        //         "io",
+        //         std::bind(
+        //             &CrackList::OutputResults,
+        //             this
+        //         )
+        //     );
+        // }
     }
 
     dispatch::PostTaskToDispatcher(
@@ -488,7 +510,9 @@ CrackList::ReadInput(
 
     bool cache_full = false;
 
-    do
+    for(;
+        !m_Exhausted && !cache_full;
+    )
     {
         auto block = ReadBlock();
 
@@ -504,7 +528,12 @@ CrackList::ReadInput(
                 cache_full = true;
             }
         }
-    } while(!cache_full && !m_Exhausted);
+    }
+
+    if (cache_full)
+    {
+        usleep(20);
+    }
 
     // Post the next task
     dispatch::PostTaskFast(

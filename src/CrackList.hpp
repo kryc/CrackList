@@ -50,7 +50,6 @@ public:
     const bool Crack(void);
     const bool CrackLinear(void);
     void CrackWorker(const size_t Id);
-    void OutputResults(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> Results);
     void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string LastCracked, const std::string LastTry);
     void WorkerFinished(void);
 private:
@@ -60,6 +59,8 @@ private:
     void ReadInput(void);
     std::vector<std::string> ReadBlock(void);
     const std::string Hexlify(const std::string& Value) const;
+    void OutputResults(void);
+    void OutputResultsInternal(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>>& Results);
     bool m_Hexlify = true;
     std::vector<uint8_t> m_Hashes;
     std::string m_HashFile;
@@ -83,6 +84,8 @@ private:
     bool m_ParseHexInput = false;
     // Threading
     std::mutex m_InputMutex;
+    std::mutex m_ResultsMutex;
+    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> m_Results;
     std::queue<std::vector<std::string>> m_InputCache;
     size_t m_CacheSizeBlocks = 4096;
     bool m_Exhausted = false;
