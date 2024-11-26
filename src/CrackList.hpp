@@ -58,7 +58,7 @@ private:
     void AddDuplicate(const uint8_t* Hash);
     const bool CheckAndAddDuplicate(const uint8_t* Hash);
     void ReadInput(void);
-    void ReadBlock(std::vector<std::string>& Block);
+    std::vector<std::string> ReadBlock(void);
     const std::string Hexlify(const std::string& Value) const;
     bool m_Hexlify = true;
     std::vector<uint8_t> m_Hashes;
@@ -80,12 +80,13 @@ private:
     bool m_Deduplicate = false;
     std::vector<uint8_t> m_Found;
     std::shared_mutex m_DedupeMutex;
+    bool m_ParseHexInput = false;
     // Threading
     std::mutex m_InputMutex;
     std::queue<std::vector<std::string>> m_InputCache;
-    std::queue<std::vector<std::string>> m_Freelist;
-    size_t m_CacheSizeBlocks = 65535;
+    size_t m_CacheSizeBlocks = 4096;
     bool m_Exhausted = false;
+    bool m_Finished = false;
     size_t m_Threads = 1;
     dispatch::DispatcherBasePtr m_MainThread;
     dispatch::DispatcherBasePtr m_IoThread;

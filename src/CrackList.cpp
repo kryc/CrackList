@@ -61,22 +61,20 @@ CrackList::CrackLinear(
     std::vector<uint8_t> hash(m_DigestLength);
     std::string last_cracked;
 
-    block.resize(m_BlockSize);
-
     auto start = std::chrono::system_clock::now();
 
     while (!m_Exhausted)
     {
-        ReadBlock(block);
+        auto block = ReadBlock();
 
-        const size_t lanes = SimdLanes();
         const size_t hashWidth = GetHashWidth(m_Algorithm);
         SimdHashBufferFixed<MAX_STRING_LENGTH> words;
         std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
 
-        for (size_t i = 0; i < m_BlockSize; i+=lanes)
+        for (size_t i = 0; i < m_BlockSize; i+=SimdLanes())
         {
-            for (size_t j = 0; j < lanes; j++)
+            const size_t remaining = std::min(SimdLanes(), m_BlockSize - i);
+            for (size_t j = 0; j < remaining; j++)
             {
                 const std::string& line = block[i + j];
                 words.Set(j, line);
@@ -89,7 +87,7 @@ CrackList::CrackLinear(
                 &hashes[0]
             );
 
-            for (size_t h = 0; h < lanes; h++)
+            for (size_t h = 0; h < remaining; h++)
             {
                 const uint8_t* hash = &hashes[h * hashWidth];
                 
@@ -184,7 +182,7 @@ CrackList::OutputResults(
     // Check if we have found all the tarets
     if (m_Cracked == m_Count)
     {
-        m_Exhausted = true;
+        m_Finished = true;
     }
 }
 
@@ -301,7 +299,7 @@ CrackList::CrackWorker(
         std::lock_guard<std::mutex> lock(m_InputMutex);
 
         // Check if all input is done
-        if (m_InputCache.empty() && m_Exhausted)
+        if (m_InputCache.empty() && m_Finished)
         {
             // Track the completion of this worker
             dispatch::PostTaskToDispatcher(
@@ -347,7 +345,8 @@ CrackList::CrackWorker(
 
     for (size_t i = 0; i < m_BlockSize; i+=lanes)
     {
-        for (size_t j = 0; j < lanes; j++)
+        const size_t remaining = std::min(SimdLanes(), m_BlockSize - i);
+        for (size_t j = 0; j < remaining; j++)
         {
             const std::string& line = block[i + j];
             words.Set(j, line);
@@ -360,7 +359,7 @@ CrackList::CrackWorker(
             &hashes[0]
         );
 
-        for (size_t h = 0; h < lanes; h++)
+        for (size_t h = 0; h < remaining; h++)
         {
             const uint8_t* hash = &hashes[h * hashWidth];
             
@@ -415,16 +414,6 @@ CrackList::CrackWorker(
         )
     );
 
-    // Return the used block to the free list
-    {
-        std::lock_guard<std::mutex> lock(m_InputMutex);
-
-        if (m_Freelist.size() < m_CacheSizeBlocks)
-        {
-            m_Freelist.push(std::move(block));
-        }
-    }
-
     dispatch::PostTaskFast(
         std::bind(
             &CrackList::CrackWorker,
@@ -434,19 +423,16 @@ CrackList::CrackWorker(
     );
 }
 
-void
+std::vector<std::string>
 CrackList::ReadBlock(
-    std::vector<std::string>& Block
+    void
 )
 {
     std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
+    std::vector<std::string> block;
     std::string line;
-    size_t index = 0;
 
-    if (Block.size() != m_BlockSize)
-    {
-        Block.resize(m_BlockSize);
-    }
+    block.reserve(m_BlockSize);
 
     // Loop until the block is full or the input is exhausted
     do
@@ -470,17 +456,19 @@ CrackList::ReadBlock(
             continue;
         }
 
-        // Handle parsing "$HEX[]" input
-        if (line.starts_with("$HEX[") && line.back() == ']')
+        // Handle parsing "$HEX[]" input.
+        if (m_ParseHexInput && line.starts_with("$HEX[") && line.back() == ']')
         {
             auto bytes = Util::ParseHex(line.substr(5, line.size() - 6));
             line = std::string(bytes.begin(), bytes.end());
         }
 
         m_LastLine = line;
-        Block[index++] = std::move(line);
+        block.push_back(std::move(line));
         m_Processed++;
-    } while(index < m_BlockSize && !m_Exhausted);
+    } while(block.size() < m_BlockSize && !m_Exhausted);
+
+    return block;
 }
 
 void
@@ -491,27 +479,18 @@ CrackList::ReadInput(
     // Terminate our current queue
     if (m_Exhausted)
     {
+        // Signal to stop reading input
+        m_Finished = true;
+        // Kill the IO thread
         dispatch::CurrentQueue()->Stop();
         return;
     }
 
     bool cache_full = false;
-    std::vector<std::string> block;
 
     do
     {
-        // Check the free list for ablock we can reuse
-        {
-            std::lock_guard<std::mutex> lock(m_InputMutex);
-            
-            if (!m_Freelist.empty())
-            {
-                block = std::move(m_Freelist.front());
-                m_Freelist.pop();
-            }
-        }
-
-        ReadBlock(block);
+        auto block = ReadBlock();
 
         if (!block.empty())
         {

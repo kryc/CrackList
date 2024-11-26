@@ -50,7 +50,7 @@ int main(
             ARGCHECK();
             cracklist.SetThreads(atoi(argv[++i]));
         }
-        else if (arg == "--blocksize" || arg == "-b")
+        else if (arg == "--blocksize")
         {
             ARGCHECK();
             cracklist.SetBlockSize(atoi(argv[++i]));
@@ -66,7 +66,7 @@ int main(
             }
             cracklist.SetAlgorithm(algorithm);
         }
-        else if (arg == "--binary" || arg == "--b")
+        else if (arg == "--binary" || arg == "-b")
         {
             cracklist.SetBinary(true);
         }

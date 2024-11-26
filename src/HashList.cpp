@@ -170,6 +170,7 @@ HashList::InitializeInternal(
 
         // Second pass
         std::cerr << "Pass 2" << std::endl;
+        next = (uint8_t*)base + (m_DigestLength * (READAHEAD/2));
         for (size_t i = READAHEAD/2; i < m_Count; i+= READAHEAD)
         {
             const uint16_t index = *(uint16_t*)next;
