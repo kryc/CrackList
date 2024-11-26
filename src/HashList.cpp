@@ -29,6 +29,7 @@ HashList::Lookup(
     const size_t HashSize
 )
 {
+    assert(Size % HashSize == 0);
     // Perform the search
     const uint8_t* base = Base;
     const uint8_t* top = Base + Size;
@@ -145,11 +146,10 @@ HashList::InitializeInternal(
     const uint8_t* base = m_Base;
     
     // Save the first hash
-    uint8_t* next = (uint8_t*)base;
-    uint16_t last = *(uint16_t*)next;
-    m_MappedTableLookup[last] = base;
+    const uint16_t first = *(uint16_t*)base;
+    m_MappedTableLookup[first] = base;
 
-    constexpr size_t READAHEAD = 256;
+    constexpr size_t READAHEAD = 512;
 
     // For lists larger than FAST_LOOKUP_THRESHOLD
     // We need to index the offset list
@@ -159,32 +159,18 @@ HashList::InitializeInternal(
         std::cerr << "Pass 1" << std::endl;
         for (size_t i = 0; i < m_Count; i+= READAHEAD)
         {
-            const uint16_t index = *(uint16_t*)next;
-            if (index != last)
-            {
-                m_MappedTableLookup[index] = next;
-            }
-            last = index;
-            next += (m_DigestLength * READAHEAD);
-        }
-
-        // Second pass
-        std::cerr << "Pass 2" << std::endl;
-        next = (uint8_t*)base + (m_DigestLength * (READAHEAD/2));
-        for (size_t i = READAHEAD/2; i < m_Count; i+= READAHEAD)
-        {
+            const uint8_t* next = base + (i * m_DigestLength);
             const uint16_t index = *(uint16_t*)next;
             if (m_MappedTableLookup[index] == nullptr ||
                 m_MappedTableLookup[index] > next)
             {
                 m_MappedTableLookup[index] = next;
             }
-            next += (m_DigestLength * READAHEAD);
         }
 
         // Third pass -> N'th pass
         // Loop over each known endpoint and check the previous entry
-        size_t pass = 3;
+        size_t pass = 2;
         bool foundNewEntry;
         do
         {
@@ -205,12 +191,15 @@ HashList::InitializeInternal(
                 }
 
                 // Walk backwards until we find the previous
-                const uint16_t index = *(uint16_t*)offset;
                 for (;;)
                 {
                     offset -= m_DigestLength;
                     const uint16_t next = *(uint16_t*)offset;
-                    if (next != index)
+                    if (next == i)
+                    {
+                        m_MappedTableLookup[i] = offset;
+                    }
+                    else
                     {
                         if (m_MappedTableLookup[next] == nullptr)
                         {
@@ -219,7 +208,6 @@ HashList::InitializeInternal(
                         }
                         break;
                     }
-                    m_MappedTableLookup[i] -= m_DigestLength;
                 }
             }
         } while(foundNewEntry);
@@ -227,46 +215,49 @@ HashList::InitializeInternal(
         // Calculate the counts
         // We walk through each item, look for the next offset
         // and calculate the distance between them
-        const uint8_t* max = 0;
-        uint16_t maxIndex = 0;
         for (size_t i = 0; i < LOOKUP_SIZE; i++)
         {
-            const uint8_t* offset = m_MappedTableLookup[i];
             // Find the next closest offset
-            const uint8_t* next = (const uint8_t*)-1;
-            for (size_t j = i + 1; j < LOOKUP_SIZE; j++)
+            const uint8_t* offset = m_MappedTableLookup[i];
+            const uint8_t* next = nullptr;
+            for (size_t j = 0; j < LOOKUP_SIZE; j++)
             {
-                assert(j != i);
-
-                const uint8_t* test = m_MappedTableLookup[j];
-                if (test == nullptr)
+                if (i == j)
                 {
                     continue;
                 }
-
-                if (test > offset && test < next)
+                if (m_MappedTableLookup[j] != nullptr
+                    && m_MappedTableLookup[j] > m_MappedTableLookup[i]
+                    && (next == nullptr || m_MappedTableLookup[j] < next))
                 {
-                    next = test;
+                    next = m_MappedTableLookup[j];
                 }
             }
-            // Calculate the distance
-            assert(next > offset);
-            
-            if(next != (const uint8_t*)-1)
-            {
-                m_MappedTableLookupSize[i] = (next - offset);
 
-                // Update the max so we can calculate the last entry
-                if (offset > max)
-                {
-                    max = offset;
-                    maxIndex = i;
-                }
+            assert(next == nullptr || next > offset);         
+            assert(next == nullptr || (uint64_t)(next - offset) % m_DigestLength == 0);
+            
+            if(next != nullptr)
+            {
+                m_MappedTableLookupSize[i] = (next - m_MappedTableLookup[i]);
+            }
+        }
+
+        // Handle the last entry
+        const uint8_t* max = nullptr;
+        size_t maxIndex = 0;
+        for (size_t i = 0; i < LOOKUP_SIZE; i++)
+        {
+            if (m_MappedTableLookup[i] != nullptr
+                && m_MappedTableLookup[i] > max)
+            {
+                max = m_MappedTableLookup[i];
+                maxIndex = i;
             }
         }
 
         // Calculate final size
-        const uint8_t* end = m_Base + m_Size - m_DigestLength;
+        const uint8_t* end = m_Base + m_Size;
         m_MappedTableLookupSize[maxIndex] = (end - max);
     }
 
