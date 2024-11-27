@@ -61,19 +61,22 @@ CrackList::CrackLinear(
     std::vector<uint8_t> hash(m_DigestLength);
     std::string last_cracked;
 
+    std::cerr << "Performing linear crack" << std::endl;
+
     auto start = std::chrono::system_clock::now();
 
     while (!m_Exhausted)
     {
         auto block = ReadBlock();
 
+        const size_t lanes = SimdLanes();
         const size_t hashWidth = GetHashWidth(m_Algorithm);
         SimdHashBufferFixed<MAX_STRING_LENGTH> words;
         std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
 
-        for (size_t i = 0; i < m_BlockSize; i+=SimdLanes())
+        for (size_t i = 0; i < std::min(m_BlockSize, block.size()); i+=lanes)
         {
-            const size_t remaining = std::min(SimdLanes(), m_BlockSize - i);
+            const size_t remaining = std::min(lanes, block.size() - i);
             for (size_t j = 0; j < remaining; j++)
             {
                 const std::string& line = block[i + j];
@@ -359,9 +362,9 @@ CrackList::CrackWorker(
     SimdHashBufferFixed<MAX_STRING_LENGTH> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
 
-    for (size_t i = 0; i < m_BlockSize; i+=lanes)
+    for (size_t i = 0; i < std::min(m_BlockSize, block.size()); i+=lanes)
     {
-        const size_t remaining = std::min(SimdLanes(), m_BlockSize - i);
+        const size_t remaining = std::min(lanes, block.size() - i);
         for (size_t j = 0; j < remaining; j++)
         {
             const std::string& line = block[i + j];
