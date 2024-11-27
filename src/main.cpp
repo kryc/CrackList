@@ -70,10 +70,6 @@ int main(
         {
             cracklist.SetBinary(true);
         }
-        else if (arg == "--dedup")
-        {
-            cracklist.SetDeduplicate(true);
-        }
         else if (cracklist.GetHashFile() == "")
         {
             cracklist.SetHashFile(arg);

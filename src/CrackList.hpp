@@ -35,7 +35,6 @@ public:
     void SetSeparator(const std::string Separator) { m_Separator = Separator; }
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     void SetBlockSize(const size_t BlockSize) { m_BlockSize = BlockSize; }
-    void SetDeduplicate(const bool Deduplicate) { m_Deduplicate = Deduplicate; }
     void SetBinary(const bool Binary) { m_BinaryHashFile = Binary; }
     void DisableAutohex(void) { m_Hexlify = false; }
     const std::string GetHashFile(void) const { return m_HashFile; }
@@ -45,7 +44,6 @@ public:
     const std::string GetSeparator(void) const { return m_Separator; }
     const size_t GetThreads(void) const { return m_Threads; }
     const size_t GetBlockSize(void) const { return m_BlockSize; }
-    const bool GetDeduplicate(void) const { return m_Deduplicate; }
     const bool GetBinary(void) const { return m_BinaryHashFile; }
     const bool Crack(void);
     const bool CrackLinear(void);
@@ -53,9 +51,6 @@ public:
     void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string LastCracked, const std::string LastTry);
     void WorkerFinished(void);
 private:
-    const bool CheckDuplicate(const uint8_t* Hash) const;
-    void AddDuplicate(const uint8_t* Hash);
-    const bool CheckAndAddDuplicate(const uint8_t* Hash);
     void ReadInput(void);
     std::vector<std::string> ReadBlock(void);
     const std::string Hexlify(const std::string& Value) const;
@@ -78,9 +73,6 @@ private:
     size_t m_Count;
     size_t m_Processed = 0;
     size_t m_Cracked = 0;
-    bool m_Deduplicate = false;
-    std::vector<uint8_t> m_Found;
-    std::shared_mutex m_DedupeMutex;
     bool m_ParseHexInput = false;
     // Threading
     std::mutex m_InputMutex;

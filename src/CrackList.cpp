@@ -96,24 +96,11 @@ CrackList::CrackLinear(
                 
                 if (m_HashList.Lookup(hash))
                 {
-                    // Check first in a shared lock
-                    if (m_Deduplicate)
-                    {
-                        if (CheckDuplicate(hash))
-                        {
-                            continue;
-                        }
-                    }
-
-                    // Check and add in a unique lock if not found
-                    if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
-                    {
-                        auto hex = Util::ToHex(hash, m_DigestLength);
-                        hex = Util::ToLower(hex);
-                        m_Cracked++;
-                        output << hex << m_Separator << Hexlify(words.GetString(h)) << std::endl;
-                        last_cracked = block[h];
-                    }
+                    auto hex = Util::ToHex(hash, m_DigestLength);
+                    hex = Util::ToLower(hex);
+                    m_Cracked++;
+                    output << hex << m_Separator << Hexlify(words.GetString(h)) << std::endl;
+                    last_cracked = block[h];
                 }
             }
         }
@@ -129,43 +116,6 @@ CrackList::CrackLinear(
         }
     }
     return true;
-}
-
-const bool
-CrackList::CheckDuplicate(
-    const uint8_t* Hash
-) const
-{
-    if (m_Found.size() > 0 &&
-        HashList::Lookup(&m_Found[0], m_Found.size(), (const uint8_t*)&Hash[0], m_DigestLength)
-    )
-    {
-        return true;
-    }
-    return false;
-}
-
-void
-CrackList::AddDuplicate(
-    const uint8_t* Hash
-)
-{
-    m_Found.insert(m_Found.end(), Hash, Hash + m_DigestLength);
-    qsort_r(&m_Found[0], m_Found.size()/m_DigestLength, m_DigestLength, (__compar_d_fn_t)memcmp, (void*)m_DigestLength);
-}
-
-const bool
-CrackList::CheckAndAddDuplicate(
-    const uint8_t* Hash
-)
-{
-    std::unique_lock lock(m_DedupeMutex);
-    const bool exists = CheckDuplicate(Hash);
-    if (!exists)
-    {
-        AddDuplicate(Hash);
-    }
-    return exists;
 }
 
 void
@@ -384,23 +334,9 @@ CrackList::CrackWorker(
             
             if (m_HashList.Lookup(hash))
             {
-                // Check first in a shared lock
-                if (m_Deduplicate)
-                {
-                    std::shared_lock lock(m_DedupeMutex);
-                    if (CheckDuplicate(hash))
-                    {
-                        continue;
-                    }
-                }
-
-                // Check and add in a unique lock if not found
-                if (!m_Deduplicate || !CheckAndAddDuplicate(hash))
-                {
-                    auto hex = Util::ToHex(hash, m_DigestLength);
-                    hex = Util::ToLower(hex);
-                    cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, Hexlify(words.GetString(h))});
-                }
+                auto hex = Util::ToHex(hash, m_DigestLength);
+                hex = Util::ToLower(hex);
+                cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, Hexlify(words.GetString(h))});
             }
         }
     }
