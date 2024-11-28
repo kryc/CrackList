@@ -20,6 +20,7 @@
 #include "simdhash.h"
 #include "SimdHashBuffer.hpp"
 
+#include "Common.hpp"
 #include "CrackList.hpp"
 #include "HashList.hpp"
 #include "Util.hpp"
@@ -57,43 +58,50 @@ CrackList::CrackLinear(
 )
 {
     std::ostream& output = m_OutputFileStream.is_open() ? m_OutputFileStream : std::cout;
-    std::vector<std::string> block;
-    std::vector<uint8_t> hash(m_DigestLength);
     std::string last_cracked;
 
     std::cerr << "Performing linear crack" << std::endl;
 
     auto start = std::chrono::system_clock::now();
 
+    const size_t lanes = SimdLanes();
+    const size_t hashWidth = GetHashWidth(m_Algorithm);
+    SimdHashBufferFixed<MAX_STRING_LENGTH> words;
+    std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
+
     while (!m_Exhausted)
     {
         auto block = ReadBlock();
 
-        const size_t lanes = SimdLanes();
-        const size_t hashWidth = GetHashWidth(m_Algorithm);
-        SimdHashBufferFixed<MAX_STRING_LENGTH> words;
-        std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
+        // Can be empty if the input is blocksize aligned
+        if (block.empty())
+        {
+            continue;
+        }
 
-        for (size_t i = 0; i < std::min(m_BlockSize, block.size()); i+=lanes)
+        for (size_t i = 0; i < block.size(); i+=lanes)
         {
             const size_t remaining = std::min(lanes, block.size() - i);
-            for (size_t j = 0; j < remaining; j++)
+            for (size_t h = 0; h < remaining; h++)
             {
-                const std::string& line = block[i + j];
-                words.Set(j, line);
+                words.Set(h, block[i + h]);
             }
 
-            SimdHash(
-                m_Algorithm,
-                words.GetLengths(),
-                words.ConstBuffers(),
-                &hashes[0]
-            );
+            // SimdHash(
+            //     m_Algorithm,
+            //     words.GetLengths(),
+            //     words.ConstBuffers(),
+            //     &hashes[0]
+            // );
+
+            for (size_t h = 0; h < remaining; h++)
+            {
+                DoHash(m_Algorithm, words[h], words.GetLength(h), &hashes[h * m_DigestLength]);
+            }
 
             for (size_t h = 0; h < remaining; h++)
             {
                 const uint8_t* hash = &hashes[h * hashWidth];
-                
                 if (m_HashList.Lookup(hash))
                 {
                     auto hex = Util::ToHex(hash, m_DigestLength);
@@ -104,6 +112,8 @@ CrackList::CrackLinear(
                 }
             }
         }
+
+        m_BlocksProcessed++;
 
         auto end = std::chrono::system_clock::now();
         auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -218,6 +228,7 @@ CrackList::ThreadPulse(
         fprintf(stderr, "%s", "\r");
         fflush(stderr);
         memset(statusbuf, ' ', sizeof(statusbuf) - 1);
+        size_t wordsProcessed = m_WordsProcessed;
         int count = snprintf(
             statusbuf, sizeof(statusbuf),
             "H/s:%.1lf%c C:%zu/%zu (%.1lf%%) T:%zu C:\"%s\" L:\"%s\"",
@@ -226,7 +237,7 @@ CrackList::ThreadPulse(
                 m_Cracked,
                 hashcount,
                 percent,
-                m_Processed,
+                wordsProcessed,
                 printable_cracked.c_str(),
                 printable_last.c_str()
         );
@@ -259,29 +270,28 @@ CrackList::CrackWorker(
 )
 {
     std::vector<std::string> block;
-    std::vector<uint8_t> hash(m_DigestLength);
     std::string last_cracked;
 
     srand(Id);
 
     // Check if all input is done
-    if (m_Finished && m_InputCache.empty())
-    {
-        // Track the completion of this worker
-        dispatch::PostTaskToDispatcher(
-            "main",
-            std::bind(
-                &CrackList::WorkerFinished,
-                this
-            )
-        );
-        // Terminate our current queue
-        dispatch::CurrentQueue()->Stop();
-        return;
-    }
-
     {
         std::lock_guard<std::mutex> lock(m_InputMutex);
+        if (m_Finished && m_InputCache.empty())
+        {
+            // Track the completion of this worker
+            dispatch::PostTaskToDispatcher(
+                "main",
+                std::bind(
+                    &CrackList::WorkerFinished,
+                    this
+                )
+            );
+            // Terminate our current queue
+            dispatch::CurrentQueue()->Stop();
+            return;
+        }
+
         if (!m_InputCache.empty())
         {
             block = std::move(m_InputCache.front());
@@ -312,21 +322,25 @@ CrackList::CrackWorker(
     SimdHashBufferFixed<MAX_STRING_LENGTH> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
 
-    for (size_t i = 0; i < std::min(m_BlockSize, block.size()); i+=lanes)
+    for (size_t i = 0; i < block.size(); i+=lanes)
     {
         const size_t remaining = std::min(lanes, block.size() - i);
-        for (size_t j = 0; j < remaining; j++)
+        for (size_t h = 0; h < remaining; h++)
         {
-            const std::string& line = block[i + j];
-            words.Set(j, line);
+            words.Set(h, block[i + h]);
         }
 
-        SimdHash(
-            m_Algorithm,
-            words.GetLengths(),
-            words.ConstBuffers(),
-            &hashes[0]
-        );
+        // SimdHash(
+        //     m_Algorithm,
+        //     words.GetLengths(),
+        //     words.ConstBuffers(),
+        //     &hashes[0]
+        // );
+
+        for (size_t h = 0; h < remaining; h++)
+        {
+            DoHash(m_Algorithm, words[h], words.GetLength(h), &hashes[h * m_DigestLength]);
+        }
 
         for (size_t h = 0; h < remaining; h++)
         {
@@ -363,6 +377,8 @@ CrackList::CrackWorker(
         // }
     }
 
+    m_BlocksProcessed++;
+
     dispatch::PostTaskToDispatcher(
         "main",
         std::bind(
@@ -396,7 +412,7 @@ CrackList::ReadBlock(
     block.reserve(m_BlockSize);
 
     // Loop until the block is full or the input is exhausted
-    do
+    while(block.size() < m_BlockSize)
     {
         if (input.eof())
         {
@@ -426,8 +442,8 @@ CrackList::ReadBlock(
 
         m_LastLine = line;
         block.push_back(std::move(line));
-        m_Processed++;
-    } while(block.size() < m_BlockSize && !m_Exhausted);
+        m_WordsProcessed++;
+    }
 
     return block;
 }
@@ -449,9 +465,7 @@ CrackList::ReadInput(
 
     bool cache_full = false;
 
-    for(;
-        !m_Exhausted && !cache_full;
-    )
+    while(!m_Exhausted && !cache_full)
     {
         auto block = ReadBlock();
 
@@ -462,6 +476,7 @@ CrackList::ReadInput(
             m_InputCache.push(
                 std::move(block)
             );
+            
             if (m_InputCache.size() >= m_CacheSizeBlocks)
             {
                 cache_full = true;
@@ -633,7 +648,9 @@ CrackList::Crack(
         std::cerr << std::endl;
     }
 
-    std::cerr << "Cracked " << m_Cracked << " hashes" << std::endl;
+    std::cerr << "Processed " << m_WordsProcessed << " inputs" << std::endl;
+    std::cerr << "Processed " << m_BlocksProcessed << " blocks" << std::endl;
+    std::cerr << "Cracked   " << m_Cracked << " hashes" << std::endl;
 
     return result;
 }

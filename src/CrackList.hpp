@@ -9,6 +9,7 @@
 #ifndef CrackList_hpp
 #define CrackList_hpp
 
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -71,7 +72,8 @@ private:
     std::string m_LastLine;
     std::string m_LastCracked;
     size_t m_Count;
-    size_t m_Processed = 0;
+    std::atomic<size_t> m_WordsProcessed = 0;
+    std::atomic<size_t> m_BlocksProcessed = 0;
     size_t m_Cracked = 0;
     bool m_ParseHexInput = false;
     // Threading

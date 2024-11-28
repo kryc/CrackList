@@ -30,7 +30,7 @@ endif()
 
 # set compiler flags
 set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations ${AVXFLAG}")
-set(CMAKE_EXE_LINKER_FLAGS "-licuuc")
+set(CMAKE_EXE_LINKER_FLAGS "-licuuc -lcrypto")
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -funroll-loops")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -O0 -fno-omit-frame-pointer -fsanitize=address -DDEBUG")
