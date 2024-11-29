@@ -156,7 +156,7 @@ HashList::InitializeInternal(
     if (m_Count >= FAST_LOOKUP_THRESHOLD)
     {
         // First pass
-        std::cerr << "Pass 1" << std::endl;
+        std::cerr << "Pass 1. " << std::flush;
         for (size_t i = 0; i < m_Count; i+= READAHEAD)
         {
             const uint8_t* next = base + (i * m_DigestLength);
@@ -175,7 +175,7 @@ HashList::InitializeInternal(
         do
         {
             foundNewEntry = false;
-            std::cerr << "Pass " << pass++ << std::endl;
+            std::cerr << "Pass " << pass++ << ". " << std::flush;
             for (size_t i = 0; i < LOOKUP_SIZE; i++)
             {
                 const uint8_t* offset = m_MappedTableLookup[i];
@@ -211,6 +211,8 @@ HashList::InitializeInternal(
                 }
             }
         } while(foundNewEntry);
+
+        std::cerr << std::endl;
 
         // Calculate the counts
         // We walk through each item, look for the next offset

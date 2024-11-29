@@ -25,6 +25,14 @@
 
 #include "HashList.hpp"
 
+typedef enum
+{
+    InputTypeUnknown,
+    InputTypeText,
+    InputTypeBinary,
+    InputTypeSingle
+} HashFileType;
+
 class CrackList
 {
 public:
@@ -36,7 +44,8 @@ public:
     void SetSeparator(const std::string Separator) { m_Separator = Separator; }
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     void SetBlockSize(const size_t BlockSize) { m_BlockSize = BlockSize; }
-    void SetBinary(const bool Binary) { m_BinaryHashFile = Binary; }
+    void SetBinary(const bool Binary) { m_HashType = Binary ? InputTypeBinary : InputTypeText; }
+    void SetTerminalWidth(const size_t Width) { m_TerminalWidth = Width; }
     void DisableAutohex(void) { m_Hexlify = false; }
     const std::string GetHashFile(void) const { return m_HashFile; }
     const std::filesystem::path GetOutFile(void) const { return m_OutFile; }
@@ -45,7 +54,8 @@ public:
     const std::string GetSeparator(void) const { return m_Separator; }
     const size_t GetThreads(void) const { return m_Threads; }
     const size_t GetBlockSize(void) const { return m_BlockSize; }
-    const bool GetBinary(void) const { return m_BinaryHashFile; }
+    const bool GetBinary(void) const { return m_HashType == InputTypeBinary; }
+    const size_t GetTerminalWidth(void) const { return m_TerminalWidth; }
     const bool Crack(void);
     const bool CrackLinear(void);
     void CrackWorker(const size_t Id);
@@ -60,6 +70,7 @@ private:
     bool m_Hexlify = true;
     std::vector<uint8_t> m_Hashes;
     std::string m_HashFile;
+    HashFileType m_HashType = InputTypeUnknown;
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;
     HashAlgorithm m_Algorithm = HashAlgorithmUndefined;
@@ -67,7 +78,6 @@ private:
     HashList m_HashList;
     std::ifstream m_WordlistFileStream;
     std::ofstream m_OutputFileStream;
-    bool m_BinaryHashFile;
     std::string m_Separator = ":";
     std::string m_LastLine;
     std::string m_LastCracked;
@@ -76,6 +86,7 @@ private:
     std::atomic<size_t> m_BlocksProcessed = 0;
     size_t m_Cracked = 0;
     bool m_ParseHexInput = false;
+    size_t m_TerminalWidth = 80;
     // Threading
     std::mutex m_InputMutex;
     std::mutex m_ResultsMutex;

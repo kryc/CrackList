@@ -70,6 +70,11 @@ int main(
         {
             cracklist.SetBinary(true);
         }
+        else if (arg == "--terminal-width" || arg == "-w")
+        {
+            ARGCHECK();
+            cracklist.SetTerminalWidth(atoi(argv[++i]));
+        }
         else if (cracklist.GetHashFile() == "")
         {
             cracklist.SetHashFile(arg);

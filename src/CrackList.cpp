@@ -223,14 +223,14 @@ CrackList::ThreadPulse(
         const size_t hashcount = m_HashList.GetCount();
         double percent = ((double)m_Cracked / hashcount) * 100.f;
 
-        char statusbuf[80];
+        char statusbuf[m_TerminalWidth];
         statusbuf[sizeof(statusbuf) - 1] = '\0';
         fprintf(stderr, "%s", "\r");
         fflush(stderr);
-        memset(statusbuf, ' ', sizeof(statusbuf) - 1);
+        memset(statusbuf, ' ', m_TerminalWidth - 1);
         size_t wordsProcessed = m_WordsProcessed;
         int count = snprintf(
-            statusbuf, sizeof(statusbuf),
+            statusbuf, m_TerminalWidth,
             "H/s:%.1lf%c C:%zu/%zu (%.1lf%%) T:%zu C:\"%s\" L:\"%s\"",
                 hashesPerSec,
                 multiplechar,
@@ -241,7 +241,7 @@ CrackList::ThreadPulse(
                 printable_cracked.c_str(),
                 printable_last.c_str()
         );
-        if (count < sizeof(statusbuf) - 1)
+        if (count < m_TerminalWidth - 1)
         {
             statusbuf[count] = ' ';
         }
@@ -534,8 +534,30 @@ CrackList::Crack(
         m_OutputFileStream.open(m_OutFile, std::ios::out | std::ios::app);
     }
 
+    // Detect the input type
+    if (m_HashType == InputTypeUnknown)
+    {
+        if (m_HashFile.ends_with(".txt"))
+        {
+            m_HashType = InputTypeText;
+        }
+        else if (m_HashFile.ends_with(".bin") || m_HashFile.ends_with(".dat"))
+        {
+            m_HashType = InputTypeBinary;
+        }
+        else if (Util::IsHex(m_HashFile))
+        {
+            m_HashType = InputTypeSingle;
+        }
+        else
+        {
+            std::cerr << "Error: Unable to determine input hash file type" << std::endl;
+            return false;
+        }
+    }
+
     // Open the hash file
-    if (m_BinaryHashFile)
+    if (m_HashType == InputTypeBinary)
     {
         if (m_Algorithm == HashAlgorithmUndefined)
         {
@@ -546,7 +568,7 @@ CrackList::Crack(
         m_DigestLength = GetHashWidth(m_Algorithm);
         m_HashList.Initialize(m_HashFile, m_DigestLength);
     }
-    else if (std::filesystem::is_character_file(m_HashFile))
+    else if (m_HashType == InputTypeText)
     {
         std::cerr << "Parsing hash list" << std::endl;
 
@@ -578,7 +600,7 @@ CrackList::Crack(
 
         m_HashList.Initialize(&m_Hashes[0], m_Hashes.size(), m_DigestLength, true);
     }
-    else if (Util::IsHex(m_HashFile))
+    else if (m_HashType == InputTypeSingle)
     {
         m_Algorithm = DetectHashAlgorithmHex(m_HashFile.size());
         if (m_Algorithm == HashAlgorithmUndefined)
