@@ -19,18 +19,8 @@ SET(CMAKE_CXX_COMPILER clang++)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-message("Detected platform: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
-if (NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64")
-    if (NOT AVX OR AVX STREQUAL "" OR AVX STREQUAL "256")
-        set(AVXFLAG "-mavx2" CACHE STRING "" FORCE)
-    elseif(AVX STREQUAL "512")
-        set(AVXFLAG "-mavx512bw" CACHE STRING "" FORCE)
-    endif()
-endif()
-
 # set compiler flags
-set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations ${AVXFLAG}")
-set(CMAKE_EXE_LINKER_FLAGS "-licuuc -lcrypto")
+set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations")
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -funroll-loops")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -O0 -fno-omit-frame-pointer -fsanitize=address -DDEBUG")
@@ -53,4 +43,4 @@ target_include_directories(cracklist
                                 ./src/
                                 ./SimdHash/src/
                         )
-target_link_libraries(cracklist simdhash dispatchqueue)
+target_link_libraries(cracklist simdhash dispatchqueue crypto)
