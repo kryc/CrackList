@@ -87,17 +87,17 @@ CrackList::CrackLinear(
                 words.Set(h, block[i + h]);
             }
 
-            // SimdHash(
-            //     m_Algorithm,
-            //     words.GetLengths(),
-            //     words.ConstBuffers(),
-            //     &hashes[0]
-            // );
+            SimdHash(
+                m_Algorithm,
+                words.GetLengths(),
+                words.ConstBuffers(),
+                &hashes[0]
+            );
 
-            for (size_t h = 0; h < remaining; h++)
-            {
-                DoHash(m_Algorithm, words[h], words.GetLength(h), &hashes[h * m_DigestLength]);
-            }
+            // for (size_t h = 0; h < remaining; h++)
+            // {
+            //     DoHash(m_Algorithm, words[h], words.GetLength(h), &hashes[h * m_DigestLength]);
+            // }
 
             for (size_t h = 0; h < remaining; h++)
             {
@@ -330,17 +330,17 @@ CrackList::CrackWorker(
             words.Set(h, block[i + h]);
         }
 
-        // SimdHash(
-        //     m_Algorithm,
-        //     words.GetLengths(),
-        //     words.ConstBuffers(),
-        //     &hashes[0]
-        // );
+        SimdHash(
+            m_Algorithm,
+            words.GetLengths(),
+            words.ConstBuffers(),
+            &hashes[0]
+        );
 
-        for (size_t h = 0; h < remaining; h++)
-        {
-            DoHash(m_Algorithm, words[h], words.GetLength(h), &hashes[h * m_DigestLength]);
-        }
+        // for (size_t h = 0; h < remaining; h++)
+        // {
+        //     DoHash(m_Algorithm, words[h], words.GetLength(h), &hashes[h * m_DigestLength]);
+        // }
 
         for (size_t h = 0; h < remaining; h++)
         {
