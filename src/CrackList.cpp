@@ -27,31 +27,6 @@
 
 #define MAX_STRING_LENGTH 128
 
-const std::string
-CrackList::Hexlify(
-    const std::string& Value
-) const
-{
-    if (!m_Hexlify)
-    {
-        return Value;
-    }
-    bool needshex = false;
-    for (auto c : Value)
-    {
-        if (c < ' ' || c > '~' || c == ':')
-        {
-            needshex = true;
-            break;
-        }
-    }
-    if (!needshex)
-    {
-        return Value;
-    }
-    return "$HEX[" + Util::ToHex((const uint8_t*)Value.data(), Value.size()) + "]";
-}
-
 const bool
 CrackList::CrackLinear(
     void
@@ -107,7 +82,7 @@ CrackList::CrackLinear(
                     auto hex = Util::ToHex(hash, m_DigestLength);
                     hex = Util::ToLower(hex);
                     m_Cracked++;
-                    output << hex << m_Separator << Hexlify(words.GetString(h)) << std::endl;
+                    output << hex << m_Separator << Util::Hexlify(words.GetString(h)) << std::endl;
                     last_cracked = block[h];
                 }
             }
@@ -179,11 +154,11 @@ CrackList::ThreadPulse(
         m_LastCracked = LastCracked;
     }
 
-    std::string printable_cracked = m_LastCracked;
+    std::string printable_cracked = Util::Hexlify(m_LastCracked);
     std::transform(printable_cracked.begin(), printable_cracked.end(), printable_cracked.begin(),
         [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
 
-    std::string printable_last = LastTry;
+    std::string printable_last = Util::Hexlify(LastTry);
     std::transform(printable_last.begin(), printable_last.end(), printable_last.begin(),
         [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
 
@@ -199,26 +174,10 @@ CrackList::ThreadPulse(
         averageMs /= m_Threads;
 
         // The number of hashes per second
+        std::string hps_ch;
         double hashesPerSec = (double)(m_BlockSize * 1000 * m_Threads) / averageMs;
-
+        hashesPerSec = Util::NumFactor(hashesPerSec, hps_ch);
         // double hashesPerSec = (double)(m_BlockSize * 1000) / BlockTime;
-
-        char multiplechar = ' ';
-        if (hashesPerSec > 1000000000.f)
-        {
-            hashesPerSec /= 1000000000.f;
-            multiplechar = 'b';
-        }
-        else if (hashesPerSec > 1000000.f)
-        {
-            hashesPerSec /= 1000000.f;
-            multiplechar = 'm';
-        }
-        else if (hashesPerSec > 1000.f)
-        {
-            hashesPerSec /= 1000.f;
-            multiplechar = 'k';
-        }
 
         const size_t hashcount = m_HashList.GetCount();
         double percent = ((double)m_Cracked / hashcount) * 100.f;
@@ -231,9 +190,9 @@ CrackList::ThreadPulse(
         size_t wordsProcessed = m_WordsProcessed;
         int count = snprintf(
             statusbuf, m_TerminalWidth,
-            "H/s:%.1lf%c C:%zu/%zu (%.1lf%%) T:%zu C:\"%s\" L:\"%s\"",
+            "H/s:%.1lf%s C:%zu/%zu (%.1lf%%) T:%zu C:\"%s\" L:\"%s\"",
                 hashesPerSec,
-                multiplechar,
+                hps_ch.c_str(),
                 m_Cracked,
                 hashcount,
                 percent,
@@ -350,7 +309,7 @@ CrackList::CrackWorker(
             {
                 auto hex = Util::ToHex(hash, m_DigestLength);
                 hex = Util::ToLower(hex);
-                cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, Hexlify(words.GetString(h))});
+                cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, Util::Hexlify(words.GetString(h))});
             }
         }
     }
@@ -555,6 +514,8 @@ CrackList::Crack(
             return false;
         }
     }
+
+    m_HashList.SetBitmaskSize(m_BitmaskSize);
 
     // Open the hash file
     if (m_HashType == InputTypeBinary)

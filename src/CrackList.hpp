@@ -47,6 +47,9 @@ public:
     void SetBinary(const bool Binary) { m_HashType = Binary ? InputTypeBinary : InputTypeText; }
     void SetTerminalWidth(const size_t Width) { m_TerminalWidth = Width; }
     void DisableAutohex(void) { m_Hexlify = false; }
+    void SetParseHexInput(const bool ParseHexInput) { m_ParseHexInput = ParseHexInput; }
+    void SetAutohex(const bool Autohex) { m_Hexlify = Autohex; }
+    void SetBitmaskSize(const size_t BitmaskSize) { m_BitmaskSize = BitmaskSize; }
     const std::string GetHashFile(void) const { return m_HashFile; }
     const std::filesystem::path GetOutFile(void) const { return m_OutFile; }
     const std::string GetWordlist(void) const { return m_Wordlist; }
@@ -56,18 +59,22 @@ public:
     const size_t GetBlockSize(void) const { return m_BlockSize; }
     const bool GetBinary(void) const { return m_HashType == InputTypeBinary; }
     const size_t GetTerminalWidth(void) const { return m_TerminalWidth; }
+    const size_t GetBitmaskSize(void) const { return m_BitmaskSize; }
+    const bool GetAutohex(void) const { return m_Hexlify; }
+    const bool GetParseHexInput(void) const { return m_ParseHexInput; }
     const bool Crack(void);
     const bool CrackLinear(void);
+private:
     void CrackWorker(const size_t Id);
     void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string LastCracked, const std::string LastTry);
     void WorkerFinished(void);
-private:
     void ReadInput(void);
     std::vector<std::string> ReadBlock(void);
     const std::string Hexlify(const std::string& Value) const;
     void OutputResults(void);
     void OutputResultsInternal(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>>& Results);
     bool m_Hexlify = true;
+    size_t m_BitmaskSize = 16;
     std::vector<uint8_t> m_Hashes;
     std::string m_HashFile;
     HashFileType m_HashType = InputTypeUnknown;
@@ -100,7 +107,7 @@ private:
     dispatch::DispatcherBasePtr m_IoThread;
     dispatch::DispatcherPoolPtr m_DispatchPool;
     size_t m_ActiveWorkers;
-    size_t m_BlockSize = 4096;
+    size_t m_BlockSize = 8192;
     std::map<size_t, uint64_t> m_LastBlockMs;
 };
 

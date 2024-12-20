@@ -70,6 +70,31 @@ int main(
         {
             cracklist.SetBinary(true);
         }
+        else if (arg == "--bitmask" || arg == "--masksize" || arg == "-m")
+        {
+            ARGCHECK();
+            cracklist.SetBitmaskSize(atoi(argv[++i]));
+        }
+        else if (arg == "--autohex" || arg == "-a")
+        {
+            cracklist.SetAutohex(true);
+        }
+        else if (arg == "--no-autohex" || arg == "-A")
+        {
+            cracklist.DisableAutohex();
+        }
+        else if (arg == "--parse-hex" || arg == "-p")
+        {
+            cracklist.SetParseHexInput(true);
+        }
+        else if (arg == "--text" || arg == "-T")
+        {
+            cracklist.SetBinary(false);
+        }
+        else if (arg == "--binary" || arg == "-B")
+        {
+            cracklist.SetBinary(true);
+        }
         else if (arg == "--terminal-width" || arg == "-w")
         {
             ARGCHECK();

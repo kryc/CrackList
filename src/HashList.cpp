@@ -21,11 +21,25 @@
 // lookups and not bother with binary search
 #define LINEAR_LOOKUP_THRESHOLD (512)
 
+static const uint32_t
+Bitmask(
+    const uint8_t* const Value,
+    const size_t Size
+)
+{
+    uint32_t v32 = *(uint32_t*)Value;
+#ifndef __ARM__
+    v32 = __bswap_32(v32);
+#endif
+    v32 >>= (32 - Size);
+    return v32;
+}
+
 const bool
 HashList::Lookup(
-    const uint8_t* Base,
+    const uint8_t* const Base,
     const size_t Size,
-    const uint8_t* Hash,
+    const uint8_t* const Hash,
     const size_t HashSize
 )
 {
@@ -56,6 +70,24 @@ HashList::Lookup(
         }
     }
 
+    return false;
+}
+
+const bool
+HashList::LookupLinear(
+    const uint8_t* const Base,
+    const size_t Size,
+    const uint8_t* const Hash,
+    const size_t HashSize
+)
+{
+    for (const uint8_t* offset = Base; offset < Base + Size; offset += HashSize)
+    {
+        if (memcmp(offset, Hash, HashSize) == 0)
+        {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -136,18 +168,14 @@ HashList::InitializeInternal(
     }
 
     // Build lookup table
-    std::cerr << "Indexing hash table" << std::endl;
+    std::cerr << "Indexing hash table." << std::flush;
 
-    // Zero the lengths
-    memset(m_MappedTableLookupSize, 0, sizeof(m_MappedTableLookupSize));
-    // Zero the pointers
-    memset(m_MappedTableLookup, 0, sizeof(m_MappedTableLookup));
-
-    const uint8_t* base = m_Base;
-    
-    // Save the first hash
-    const uint16_t first = *(uint16_t*)base;
-    m_MappedTableLookup[first] = base;
+    m_LookupTable.resize(1 << m_BitmaskSize);
+    for (auto &entry : m_LookupTable)
+    {
+        entry.Offset = INVALID_OFFSET;
+        entry.Count = 0;
+    }
 
     constexpr size_t READAHEAD = 512;
 
@@ -156,15 +184,14 @@ HashList::InitializeInternal(
     if (m_Count >= FAST_LOOKUP_THRESHOLD)
     {
         // First pass
-        std::cerr << "Pass 1. " << std::flush;
+        std::cerr << "\rIndexing hash table. Pass 1" << std::flush;
         for (size_t i = 0; i < m_Count; i+= READAHEAD)
         {
-            const uint8_t* next = base + (i * m_DigestLength);
-            const uint16_t index = *(uint16_t*)next;
-            if (m_MappedTableLookup[index] == nullptr ||
-                m_MappedTableLookup[index] > next)
+            const uint8_t* const pointer = m_Base + (i * m_DigestLength);
+            const uint32_t index = Bitmask(pointer, m_BitmaskSize);
+            if (m_LookupTable[index].Offset == INVALID_OFFSET)
             {
-                m_MappedTableLookup[index] = next;
+                m_LookupTable[index].Offset = i;
             }
         }
 
@@ -175,35 +202,30 @@ HashList::InitializeInternal(
         do
         {
             foundNewEntry = false;
-            std::cerr << "Pass " << pass++ << ". " << std::flush;
-            for (size_t i = 0; i < LOOKUP_SIZE; i++)
+            std::cerr << "\rIndexing hash table. Pass " << pass++ << std::flush;
+            for (size_t i = 0; i < m_LookupTable.size(); i++)
             {
-                const uint8_t* offset = m_MappedTableLookup[i];
-                if (offset == nullptr)
+                if (m_LookupTable[i].Offset == INVALID_OFFSET || m_LookupTable[i].Offset == 0)
                 {
                     continue;
                 }
 
-                // Check if it is the base
-                if (offset == base)
-                {
-                    continue;
-                }
+                const uint8_t* pointer = m_Base + (m_LookupTable[i].Offset * m_DigestLength);
 
                 // Walk backwards until we find the previous
-                for (;;)
+                while (pointer > m_Base)
                 {
-                    offset -= m_DigestLength;
-                    const uint16_t next = *(uint16_t*)offset;
-                    if (next == i)
+                    pointer -= m_DigestLength;
+                    const uint32_t index = Bitmask(pointer, m_BitmaskSize);
+                    if (index == i)
                     {
-                        m_MappedTableLookup[i] = offset;
+                        m_LookupTable[i].Offset = (pointer - m_Base) / m_DigestLength;
                     }
                     else
                     {
-                        if (m_MappedTableLookup[next] == nullptr)
+                        if (m_LookupTable[index].Offset == INVALID_OFFSET)
                         {
-                            m_MappedTableLookup[next] = offset;
+                            m_LookupTable[index].Offset = (pointer - m_Base) / m_DigestLength;
                             foundNewEntry = true;
                         }
                         break;
@@ -217,50 +239,35 @@ HashList::InitializeInternal(
         // Calculate the counts
         // We walk through each item, look for the next offset
         // and calculate the distance between them
-        for (size_t i = 0; i < LOOKUP_SIZE; i++)
+        for (size_t i = 0; i < m_LookupTable.size(); i++)
         {
             // Find the next closest offset
-            const uint8_t* offset = m_MappedTableLookup[i];
-            const uint8_t* next = nullptr;
-            for (size_t j = 0; j < LOOKUP_SIZE; j++)
+            if (m_LookupTable[i].Offset == INVALID_OFFSET)
             {
-                if (i == j)
-                {
-                    continue;
-                }
-                if (m_MappedTableLookup[j] != nullptr
-                    && m_MappedTableLookup[j] > m_MappedTableLookup[i]
-                    && (next == nullptr || m_MappedTableLookup[j] < next))
-                {
-                    next = m_MappedTableLookup[j];
-                }
+                continue;
             }
 
-            assert(next == nullptr || next > offset);         
-            assert(next == nullptr || (uint64_t)(next - offset) % m_DigestLength == 0);
-            
-            if(next != nullptr)
+            for (size_t j = i + 1; j < m_LookupTable.size(); j++)
             {
-                m_MappedTableLookupSize[i] = (next - m_MappedTableLookup[i]);
+                if (m_LookupTable[j].Offset != INVALID_OFFSET)
+                {
+                    assert(m_LookupTable[j].Offset > m_LookupTable[i].Offset);
+                    m_LookupTable[i].Count = m_LookupTable[j].Offset - m_LookupTable[i].Offset;
+                    break;
+                }
             }
         }
 
         // Handle the last entry
-        const uint8_t* max = nullptr;
-        size_t maxIndex = 0;
-        for (size_t i = 0; i < LOOKUP_SIZE; i++)
+        for (size_t i = m_LookupTable.size() - 1; i > 0; i--)
         {
-            if (m_MappedTableLookup[i] != nullptr
-                && m_MappedTableLookup[i] > max)
+            if (m_LookupTable[i].Offset != INVALID_OFFSET)
             {
-                max = m_MappedTableLookup[i];
-                maxIndex = i;
+                const uint8_t* const end = m_Base + m_Size;
+                const uint8_t* const pointer = m_Base + (m_LookupTable[i].Offset * m_DigestLength);
+                m_LookupTable[i].Count = (end - pointer) / m_DigestLength;
             }
         }
-
-        // Calculate final size
-        const uint8_t* end = m_Base + m_Size;
-        m_MappedTableLookupSize[maxIndex] = (end - max);
     }
 
     return true;
@@ -286,18 +293,17 @@ HashList::LookupFast(
     const uint8_t* Hash
 ) const
 {
-    const uint16_t index = *(uint16_t*)Hash;
-    const uint8_t* base = m_MappedTableLookup[index];
-    const size_t size = m_MappedTableLookupSize[index];
+    const uint32_t index = Bitmask(Hash, m_BitmaskSize);
+    const LookupTable& entry = m_LookupTable[index];
 
-    if (base == nullptr)
+    if (entry.Count == 0)
     {
         return false;
     }
 
     return Lookup(
-        base,
-        size,
+        m_Base + entry.Offset * m_DigestLength,
+        entry.Count * m_DigestLength,
         Hash,
         m_DigestLength
     );
@@ -335,10 +341,26 @@ HashList::Lookup(
     }
 }
 
+#ifdef __APPLE__
+int
+Compare(
+    void* Length,
+    const void* Value1,
+    const void* Value2
+)
+{
+    return memcmp(Value1, Value2, (size_t)Length);
+}
+#endif
+
 void
 HashList::Sort(
     void
 )
 {
+#ifdef __APPLE__
+    qsort_r(m_Targets, m_TargetsCount, m_HashWidth, (void*)m_HashWidth, Compare);
+#else
     qsort_r(m_Base, m_Count, m_DigestLength, (__compar_d_fn_t)memcmp, (void*)m_DigestLength);
+#endif
 }
