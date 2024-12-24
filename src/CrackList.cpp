@@ -69,14 +69,16 @@ CrackList::CrackLinear(
                 &hashes[0]
             );
 
-            // for (size_t h = 0; h < remaining; h++)
-            // {
-            //     DoHash(m_Algorithm, words[h], words.GetLength(h), &hashes[h * m_DigestLength]);
-            // }
-
             for (size_t h = 0; h < remaining; h++)
             {
-                const uint8_t* hash = &hashes[h * hashWidth];
+                uint8_t* const hash = &hashes[h * hashWidth];
+                // In linkedin mode we need to mask
+                // the high order bytes
+                if (m_LinkedIn)
+                {
+                    *(uint16_t*)hash = 0;
+                    hash[2] &= 0x0f;
+                }
                 if (m_HashList.Lookup(hash))
                 {
                     auto hex = Util::ToHex(hash, m_DigestLength);
@@ -296,15 +298,16 @@ CrackList::CrackWorker(
             &hashes[0]
         );
 
-        // for (size_t h = 0; h < remaining; h++)
-        // {
-        //     DoHash(m_Algorithm, words[h], words.GetLength(h), &hashes[h * m_DigestLength]);
-        // }
-
         for (size_t h = 0; h < remaining; h++)
         {
-            const uint8_t* hash = &hashes[h * hashWidth];
-            
+            uint8_t* const hash = &hashes[h * hashWidth];
+            // In linkedin mode we need to mask
+            // the high order bytes
+            if (m_LinkedIn)
+            {
+                *(uint16_t*)hash = 0;
+                hash[2] &= 0x0f;
+            }
             if (m_HashList.Lookup(hash))
             {
                 auto hex = Util::ToHex(hash, m_DigestLength);
@@ -496,7 +499,7 @@ CrackList::Crack(
     // Detect the input type
     if (m_HashType == InputTypeUnknown)
     {
-        if (m_HashFile.ends_with(".txt"))
+        if (m_HashFile.ends_with(".txt") || m_HashFile.ends_with(".lst"))
         {
             m_HashType = InputTypeText;
         }
@@ -546,6 +549,10 @@ CrackList::Crack(
                     return false;
                 }
                 std::cerr << HashAlgorithmToString(m_Algorithm) << " detected" << std::endl;
+                m_DigestLength = GetHashWidth(m_Algorithm);
+            }
+            else
+            {
                 m_DigestLength = GetHashWidth(m_Algorithm);
             }
             if (line.size() != m_DigestLength * 2)

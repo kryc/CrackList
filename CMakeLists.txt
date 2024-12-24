@@ -43,4 +43,4 @@ target_include_directories(cracklist
                                 ./src/
                                 ./SimdHash/src/
                         )
-target_link_libraries(cracklist simdhash dispatchqueue crypto)
+target_link_libraries(cracklist simdhash dispatchqueue crypto gmp gmpxx)

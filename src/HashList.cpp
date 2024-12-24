@@ -164,7 +164,6 @@ HashList::InitializeInternal(
     if (ret != 0)
     {
         std::cerr << "Madvise not happy" << std::endl;
-        return false;
     }
 
     // Build lookup table

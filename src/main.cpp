@@ -66,6 +66,10 @@ int main(
             }
             cracklist.SetAlgorithm(algorithm);
         }
+        else if (arg == "--linkedin")
+        {
+            cracklist.SetLinkedIn(true);
+        }
         else if (arg == "--binary" || arg == "-b")
         {
             cracklist.SetBinary(true);

@@ -50,6 +50,7 @@ public:
     void SetParseHexInput(const bool ParseHexInput) { m_ParseHexInput = ParseHexInput; }
     void SetAutohex(const bool Autohex) { m_Hexlify = Autohex; }
     void SetBitmaskSize(const size_t BitmaskSize) { m_BitmaskSize = BitmaskSize; }
+    void SetLinkedIn(const bool LinkedIn) { m_LinkedIn = LinkedIn; }
     const std::string GetHashFile(void) const { return m_HashFile; }
     const std::filesystem::path GetOutFile(void) const { return m_OutFile; }
     const std::string GetWordlist(void) const { return m_Wordlist; }
@@ -62,6 +63,7 @@ public:
     const size_t GetBitmaskSize(void) const { return m_BitmaskSize; }
     const bool GetAutohex(void) const { return m_Hexlify; }
     const bool GetParseHexInput(void) const { return m_ParseHexInput; }
+    const bool GetLinkedIn(void) const { return m_LinkedIn; }
     const bool Crack(void);
     const bool CrackLinear(void);
 private:
@@ -94,6 +96,7 @@ private:
     size_t m_Cracked = 0;
     bool m_ParseHexInput = false;
     size_t m_TerminalWidth = 80;
+    bool m_LinkedIn = false;
     // Threading
     std::mutex m_InputMutex;
     std::mutex m_ResultsMutex;
